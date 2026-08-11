@@ -15,7 +15,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
 
 # A newer push to the same branch makes the older run irrelevant.
