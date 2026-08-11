@@ -1,0 +1,62 @@
+{
+  "name": "ivedaai-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for the IvedaAI video analytics API \u2014 cameras, alerts, analysis jobs, face and licence-plate watchlists",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "ivedaai-mcp-server": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build && npm test",
+    "typecheck": "tsc -p tsconfig.check.json",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "docs": "tsx scripts/generate-tool-docs.ts",
+    "measure": "tsx scripts/measure-tool-size.ts",
+    "diff:spec": "tsx scripts/diff-spec.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WillORepO/ivedaAI-mcp-server.git"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "undici": "^7.29.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.7"
+  },
+  "engines": {
+    "node": ">=20.18.1"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ivedaai",
+    "video-analytics",
+    "vms",
+    "nvr",
+    "claude",
+    "ai-tools"
+  ],
+  "author": "Iveda",
+  "homepage": "https://github.com/WillORepO/ivedaAI-mcp-server#readme",
+  "bugs": {
+    "url": "https://github.com/WillORepO/ivedaAI-mcp-server/issues"
+  },
+  "files": [
+    "dist",
+    "resources/openapi.json",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ]
+}

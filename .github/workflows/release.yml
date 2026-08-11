@@ -1,0 +1,61 @@
+# Publishes to npm when a version tag is pushed.
+#
+# Deliberately tag-driven rather than publishing on every merge to master: a
+# release is a decision, and `npm publish` cannot be taken back — a version
+# number is burned even if the package is immediately unpublished.
+#
+# Requires an NPM_TOKEN secret with publish rights on the package.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.18.1"
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      # The same gate as CI. `prepublishOnly` runs these again during publish;
+      # running them here too means a bad tag fails before anything is uploaded.
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+
+      # Catches the mistake this workflow exists to prevent: a tag that does not
+      # match the version being published.
+      - name: Tag matches package version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $PKG"
+            exit 1
+          fi
+
+      - name: Confirm the tarball carries what it should
+        run: |
+          npm pack --dry-run 2>&1 | tee /tmp/pack.txt
+          grep -q "dist/index.js" /tmp/pack.txt || { echo "::error::dist/index.js missing from tarball"; exit 1; }
+          grep -q "resources/openapi.json" /tmp/pack.txt || { echo "::error::resources/openapi.json missing from tarball"; exit 1; }
+
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true

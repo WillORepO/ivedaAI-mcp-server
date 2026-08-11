@@ -1,0 +1,265 @@
+# Usage guide
+
+How to connect this MCP server to a client, call the tools, and run common workflows.
+For the complete list of every tool and operation, see [TOOLS.md](TOOLS.md).
+
+## What this server does
+
+It connects an AI assistant (Claude Desktop, Claude Code, or any MCP client) to an IvedaAI
+video-analytics deployment, so you can ask things in plain language and have the assistant drive
+the API for you:
+
+- *"List all cameras that aren't recording"*
+- *"Create an alert rule for intrusion detection on camera 7"*
+- *"Find license-plate detections for ABC123 in the last week"*
+- *"Add this photo as a face target in the Watchlist category"*
+- *"Analyze this video file for objects"* (uploads a file and creates a job)
+
+## Connecting
+
+### 1. Build
+
+```bash
+npm install
+npm run build
+```
+
+### 2. Register with your MCP client
+
+**Claude Desktop** — add to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "ivedaai": {
+      "command": "node",
+      "args": ["C:\\path\\to\\ivedaai-mcp-server\\dist\\index.js"],
+      "env": {
+        "IVEDAAI_BASE_URL": "https://your-server.example.com",
+        "IVEDAAI_USERNAME": "your-username",
+        "IVEDAAI_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+**Claude Code** —
+
+```bash
+claude mcp add ivedaai -e IVEDAAI_BASE_URL=https://your-server.example.com -e IVEDAAI_USERNAME=your-username -e IVEDAAI_PASSWORD=your-password -- node C:\path\to\ivedaai-mcp-server\dist\index.js
+```
+
+On-prem server with a self-signed certificate? Add `"IVEDAAI_ALLOW_INSECURE_TLS": "true"`.
+The full environment-variable reference is in the [README](../README.md#configuration).
+
+Authentication is automatic: the server logs in with your credentials on the first call, attaches
+a Bearer token to every request, refreshes it before expiry, and retries once if the server
+revokes it early. You never handle tokens yourself.
+
+## How the tools work
+
+Instead of 315 separate tools, the server groups the API into **one tool per resource** —
+`ivedaai_camera`, `ivedaai_alert`, `ivedaai_face_target`, and so on. Every call has the same shape:
+
+```jsonc
+{
+  "operation": "GET /api/cameras",   // which endpoint — pick from the tool's description
+  "path":  { "cameraId": 12 },       // path parameters, if the operation has any
+  "query": { "nameContains": "dock" }, // query parameters
+  "body":  { "name": "Dock 3" },     // JSON request body (POST/PUT/PATCH)
+  "file":  { "path": "C:\\clips\\a.mp4" } // local file, for upload operations only
+}
+```
+
+Every response is a JSON envelope:
+
+```jsonc
+{
+  "url": "…", "method": "GET",
+  "status": 200, "statusText": "OK",
+  "headers": { "content-type": "application/json" },
+  "body": { /* the API's actual response */ }
+  // plus "truncated": true or "timedOut": true if a large/streaming body was cut off
+}
+```
+
+Three things worth knowing:
+
+- **Parameter names are strict.** A typo'd query or path parameter is rejected with the list of
+  valid names — it will never be silently ignored.
+- **`ivedaai_get_schema`** returns the exact JSON schema for any named type (`CameraRequest`,
+  `Schedule`, `Contour`, …). Use it when a request body has nested objects whose shape isn't
+  obvious from the tool description.
+- **HTTP errors come back as data**, not crashes: a 404 or 400 returns the envelope with that
+  status and the server's error body, so the assistant can read the message and correct itself.
+
+## Common workflows
+
+The assistant chains these calls itself when you ask in plain language — the sequences below show
+what actually happens so you can follow along or debug.
+
+### Find and inspect cameras
+
+1. `ivedaai_camera` → `GET /api/cameras` with `query: { nameContains: "entrance" }` — paginated
+   list (`size`/`page`/`sort` control paging).
+2. `ivedaai_camera` → `GET /api/cameras/{cameraId}` — full detail for one camera.
+3. `ivedaai_camera_state` → `GET /api/camerastatehistorys` — state-change history, filterable by camera.
+
+### Add cameras from a list of IPs or RTSP URLs
+
+Use `ivedaai_add_camera` rather than the generic `ivedaai_camera` tool — it handles several
+undocumented requirements confirmed by live testing (see the README's
+[ivedaai_add_camera](../README.md) section for details).
+
+```jsonc
+{
+  "cameras": [
+    { "name": "Front Door", "streamUrl": "rtsp://admin:pass@192.168.1.50:554/stream1" },
+    { "name": "Loading Dock", "streamUrl": "rtsp://admin:pass@192.168.1.51:554/stream1" }
+  ]
+}
+```
+
+That's the minimum needed per camera — `engineProfileId` and `roiContour` (region of interest)
+default automatically (first engine profile found; full-frame rectangle), with the defaults used
+reported back in each result's `warnings`. The tool creates the camera record and starts its
+connection (`activate`) in one call; check the response's `results[].activation.jobId` afterward
+via `ivedaai_job` (`GET /api/jobs/{jobId}`) to confirm it actually connected — a `Running` status
+alone doesn't guarantee that, only that IvedaAI is still trying.
+
+Prefer a real `streamUrl` over `ip` alone: without one, the tool can only guess a generic RTSP root
+path, which often doesn't match a camera's actual manufacturer-specific stream path.
+
+### Review alerts
+
+1. `ivedaai_alert_rule` → `GET /api/alertRules` — see what rules exist.
+2. `ivedaai_alert` → `GET /api/alerts` with time-range/camera filters — triggered alerts.
+3. `ivedaai_false_report` — mark false positives.
+
+### Connect alerts to an external system (webhook, VMS, etc.)
+
+This is one of the most common real-world uses of the API — routing IvedaAI alerts into another
+platform's dashboard or alarm system. Use `ivedaai_alert_integration` rather than the generic
+`ivedaai_alert_rule`/`ivedaai_alert_trigger` tools — it knows about several undocumented
+requirements discovered by testing against a real deployment (see the "ivedaai_alert_integration"
+section in the [README](../README.md) or [TOOLS.md](TOOLS.md#ivedaai_alert_integration) for details).
+
+1. `ivedaai_alert_integration` → `{action: "list_types"}` — see all 17 trigger types, which are
+   live-testable, and the config shape for each.
+2. `ivedaai_alert_integration` → `{action: "test", type: "request", config: {method: "POST", url: "https://your-system.example.com/webhook"}}`
+   — test-fires a generic webhook. For a named VMS instead: `type: "milestone"` (or genetec, axis,
+   avigilon, …) with `config: {ip, port, username, password, protocol}`.
+3. Read the `outcome` in the response: `success` (it connected), `connection_failed` (reachable
+   target but the connection itself failed — check IP/port/credentials), `unsupported` (this trigger
+   type — only `mail`/`immix` — can't be live-tested; the config can still be saved, just verify
+   delivery another way), or `invalid_config` (something about the payload itself was rejected).
+4. Once a `test` call returns `success`, apply it for real: `ivedaai_alert_integration` →
+   `{action: "apply", type: "request", config: {…same as above…}, alertRuleId: "<uuid>"}` — this
+   PATCHes the trigger onto an existing alert rule found via `ivedaai_alert_rule` → `GET /api/alertRules`.
+5. Check the `preservation` block in the result. `apply` reads the rule first and re-sends
+   everything it can reach — including `roiIds`, `cameraIds`, `hashtags`, `typeLogic` and
+   `cooldownInterval`, which it digs out of the `condition` JSON string (which of those a given rule
+   stores there depends on its `alertType`), and `enableForever`, stored as `schedule.forever`. Nine
+   type-specific binding lists (`roiTypes`, `lprTypes`, `lineIds`, `lprCategoryIds`, `countingRule`, …)
+   have no known source in any read, so nothing can carry them through — but `PATCH
+   /api/alertRules` has been live-tested and **merges**, so leaving them out does not reset them. See
+   [the design notes](DESIGN.md#fields-you-cannot-simply-read-back) for why this API's reads and writes
+   disagree about field names in the first place.
+
+### Analyze a video file (upload job)
+
+> **Two requirements earlier versions of this guide omitted**, both confirmed by live testing
+> (verified end to end against a live deployment):
+>
+> - **A pseudo camera.** The job attaches to a container record with no stream. Without a `cameraId`
+>   the call returns `200` with an empty body and silently does nothing; with a *real* camera's id it
+>   returns `400 "Please provide a valid pseudo camera id."`
+> - **`startTime` and `endTime`.** The spec marks both optional; omit them and you get a bare
+>   `500 NullPointerException`. Format is `yyyy-MM-dd HH:mm:ss` — ISO 8601 gives
+>   `400 ParseException: Unparseable date`.
+
+1. `ivedaai_camera` → `POST /api/cameras/pseudo` with `body: { name: "incident-upload" }` — creates
+   the pseudo camera the job attaches to. Only `name` is required; keep the returned `cameraId`.
+2. `ivedaai_engine_profile` → `GET /api/engineProfiles` — find an engine profile id.
+3. `ivedaai_job` → `POST /api/jobs` with
+   `query: { type: "UploadJob", cameraId: <pseudo camera id>, engineProfileId: …,
+   startTime: "2026-07-28 15:09:00", endTime: "2026-07-28 15:17:45" }` and
+   `file: { path: "C:\\clips\\incident.mp4" }`.
+
+   Success looks like `{"success": true, "message": "Job created : 1758"}` — **the job id is only in
+   that message string**, not in any field, so you have to read it out of the prose.
+4. `ivedaai_job` → `GET /api/jobs` with `query: { types: "UploadJob" }` — poll until processing
+   finishes (`status: "Completed"`, `progress: 100`).
+5. `ivedaai_event` / `ivedaai_scene` — query what was detected. `GET /api/scenes` also requires
+   `start`/`end` in the same `yyyy-MM-dd HH:mm:ss` format.
+
+For a live camera instead of a file: `POST /api/jobs` with `query: { type: "StreamJob", cameraId: … }`
+and no file.
+
+### Face watchlist
+
+1. `ivedaai_face_category` → `GET /api/face/categories` — list watchlist categories.
+2. `ivedaai_face_target` → `POST /api/face/targets` — create the person. **Pass the category's
+   `name` in `category`, not its `faceCategoryId`** — the id fails with
+   `404 ObjectNotFoundException`. `FaceTargetRequest` types the field only as a string and does not
+   say which; live testing settled it.
+3. `ivedaai_face_target_key` → `POST /api/face/targets/{targetId}/keys` with
+   `file: { path: "C:\\photos\\person.jpg" }` — attach a reference photo. The image must contain a
+   detectable face; otherwise this returns `400 'No face detected'`.
+4. `ivedaai_face_match` — query match history. `start`/`end` are **required**, and must be formatted
+   `yyyy-MM-dd HH:mm:ss` — an ISO 8601 value returns `400` despite the spec declaring these as
+   `format: date-time`.
+
+### License plates
+
+- `ivedaai_license_plate` → `GET /api/lpr/plates` — detection history with plate filters.
+- `ivedaai_license_plate_target` / `ivedaai_license_plate_category` — manage plate watchlists;
+  bulk import supports a CSV upload via `file`.
+
+### One-off image analysis
+
+`ivedaai_detection` → `POST /api/detection/objects` (or `/plates`, `/colors`) with
+`file: { path: "C:\\snapshots\\frame.jpg" }` — run detection on a single image without creating
+a camera or job.
+
+## Limits and gotchas
+
+- **Streaming endpoints don't stream.** `GET /api/system/events` (SSE) and the `*.mjpeg` endpoints
+  never terminate; a call to them returns after the timeout (default 30 s) with `timedOut: true`
+  and whatever data arrived. Use polling (`GET /api/alerts`, `GET /api/jobs`) instead of the event
+  stream.
+- **Big responses are capped** at 2 MB by default (`truncated: true` past that). For large result
+  sets, filter server-side (`size`, time ranges) rather than fetching everything.
+- **Binary downloads aren't inlined** — image/video responses return `{ contentType, byteLength }`
+  metadata only.
+- **Destructive operations are real.** DELETE operations (and tools carrying them are annotated
+  `destructiveHint`) permanently remove cameras, targets, footage, etc. on your deployment. There
+  is no dry-run mode.
+- **Deletes are asynchronous, and a `2xx` does not mean it happened.** `DELETE` here typically
+  answers `202 Accepted`; the record can take from a few seconds (a camera) to well over a minute
+  (a face target) to disappear. Worse, **deleting a camera whose stream resource is still held is
+  dropped silently** — you get `202` and the camera stays. Deactivate it first
+  (`POST /api/cameras/{id}/jobs?activate=false`), wait a few seconds, *then* delete. Always confirm
+  by re-reading rather than trusting the status.
+- **Activating a camera consumes an engine slot, not just a `CameraResource`.** How many cameras you
+  can activate is set by **your licence**, not by a fixed product limit. Read
+  `GET /api/resources/usage` before adding cameras: each entry's `total` is licensed capacity, and
+  activation is refused with `"Number of active cameras has reached the maximum allowed"` as soon as
+  any required pool is full — which is often an engine pool (`VideoSearch`,
+  `FaceRecognitionEngine`, …) rather than `CameraResource`. The underlying licence, including its
+  expiry, is readable via `ivedaai_license` → `GET /api/licenses/ainvr?ainvrIds=…`, whose
+  `resources` and `pluginMap` fields are exactly where those totals come from. A pool showing `0` is
+  a feature your licence does not include.
+- **File uploads read from the server process's filesystem** — the `file.path` must be readable by
+  whatever machine runs this MCP server, which matters if you run it remotely.
+- **API version**: the bundled spec is IvedaAI API 9.3.0. If your deployment differs, point
+  `IVEDAAI_SWAGGER_PATH` at your server's own OpenAPI document and rebuild — the tools regenerate
+  automatically.
+
+## Extending / regenerating
+
+- New spec: replace `resources/openapi.json` (or set `IVEDAAI_SWAGGER_PATH`), rebuild, and rerun
+  `npm run docs` to refresh [TOOLS.md](TOOLS.md). Tools, validation, and docs are all generated
+  from the spec — there is no per-endpoint code to maintain.
+- Tests: `npm test` runs the vitest suite (unit + mock-server integration).

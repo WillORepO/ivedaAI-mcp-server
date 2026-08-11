@@ -1,0 +1,20 @@
+// Typechecks everything, including the parts that are never built.
+//
+// tsconfig.json is the *build*: it compiles src/ into dist/ and deliberately
+// includes nothing else. That left scripts/ and test/ unchecked by anything —
+// `npm run build` did not see them and vitest does not typecheck — so the code
+// that runs against live deployments, creating and deleting real records, was
+// the least verified in the repo. Three errors had accumulated there unnoticed.
+//
+// Separate file rather than widening tsconfig.json, because the build's output
+// shape is not something a check should get a vote on: dist/ must keep holding
+// src/ and nothing else.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // The base sets rootDir to src/, which these files sit outside of.
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src/**/*", "scripts/**/*", "test/**/*"]
+}
