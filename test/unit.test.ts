@@ -35,7 +35,7 @@ import {
 } from "../src/partialUpdate.js";
 import { describeTag, describeBodySchema, SERVER_INSTRUCTIONS } from "../src/toolDocs.js";
 import { policyFromEnv, refusalReason, allowedOperations, isCollectionDelete } from "../src/accessPolicy.js";
-import { insecureTransportWarning } from "../src/auth.js";
+import { insecureTransportWarning, loadConfig } from "../src/auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -1460,6 +1460,49 @@ describe("the bundled API document ships nothing deployment-specific", () => {
     // reach a user.
     const branded = raw.match(/[Vv]aidio\w*|[Ii]ron[Yy]un/g) ?? [];
     expect(branded.filter((m) => m !== "vaidioMode")).toEqual([]);
+  });
+});
+
+describe("response size cap", () => {
+  // The default exists to fit a *client*, not the API. Measured: 47 cameras at
+  // size=500 is 413 KB, which a real MCP client refused as too large — each
+  // camera embeds its full engineProfile, ~3.8 KB of the ~5.2 KB record.
+  const withEnv = <T>(vars: Record<string, string | undefined>, fn: () => T): T => {
+    const prev: Record<string, string | undefined> = {};
+    for (const [k, val] of Object.entries(vars)) {
+      prev[k] = process.env[k];
+      if (val === undefined) delete process.env[k];
+      else process.env[k] = val;
+    }
+    try {
+      return fn();
+    } finally {
+      for (const [k, val] of Object.entries(prev)) {
+        if (val === undefined) delete process.env[k];
+        else process.env[k] = val;
+      }
+    }
+  };
+  const credentials = {
+    IVEDAAI_BASE_URL: "https://ivedaai.example.com",
+    IVEDAAI_USERNAME: "u",
+    IVEDAAI_PASSWORD: "p",
+  };
+
+  it("defaults to something a model client can actually receive", () => {
+    const cfg = withEnv({ ...credentials, IVEDAAI_MAX_RESPONSE_BYTES: undefined }, () =>
+      loadConfig(loadSwagger())
+    );
+    expect(cfg.maxResponseBytes).toBe(131_072);
+    // The measurement that set it.
+    expect(cfg.maxResponseBytes).toBeLessThan(413_206);
+  });
+
+  it("still honours an explicit override", () => {
+    const cfg = withEnv({ ...credentials, IVEDAAI_MAX_RESPONSE_BYTES: "500000" }, () =>
+      loadConfig(loadSwagger())
+    );
+    expect(cfg.maxResponseBytes).toBe(500_000);
   });
 });
 

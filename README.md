@@ -75,7 +75,7 @@ Only the first three are required.
 | `IVEDAAI_REDACT_SECRETS` | `true` | Masks credential-shaped fields (keys, secrets, passphrases) in responses. `false` disables it. |
 | `IVEDAAI_ALLOW_INSECURE_TLS` | `false` | `true` skips TLS certificate verification, for on-prem deployments with self-signed certificates. Traffic stays encrypted; the certificate is not checked. Scoped to this server's requests, not process-wide. |
 | `IVEDAAI_TIMEOUT_MS` | `30000` | Per-request timeout, including reading the response body. Several IvedaAI endpoints block rather than failing fast when a camera is unreachable, so this matters. |
-| `IVEDAAI_MAX_RESPONSE_BYTES` | `2000000` | Response body bytes read before truncating. |
+| `IVEDAAI_MAX_RESPONSE_BYTES` | `131072` | Response body bytes read before truncating. Sized for what a model client can receive, not for what the API can send — a 47-camera `GET /api/cameras?size=500` is 413 KB and exceeds a real client's limit. Anything larger comes back flagged `truncated` with a note saying to narrow the request. |
 | `IVEDAAI_CLIENT_ID` / `IVEDAAI_CLIENT_SECRET` | — | Sent as HTTP Basic auth on the token request, if your deployment requires client credentials. |
 | `IVEDAAI_ALLOW_LOSSY_UPDATE` | `false` | `true` disables the [lossy-update guard](docs/DESIGN.md#the-lossy-update-guard). Intended for the maintainers' CRUD probe; leave it unset. |
 | `IVEDAAI_SWAGGER_PATH` | bundled | Path to an alternate OpenAPI 3 document, if your deployment's API differs from the bundled one. |

@@ -20,7 +20,20 @@ export interface IvedaAIConfig {
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_MAX_RESPONSE_BYTES = 2_000_000;
+// 2 MB was chosen to avoid truncating anything the API might legitimately
+// return. That is the wrong axis: the constraint is not what the API can send,
+// it is what a model client can receive. Measured against a real client,
+// `GET /api/cameras?size=500` on a 47-camera deployment returned 413 KB and
+// exceeded the client's per-result limit — it never reached the model at all.
+//
+// 128 KB is roughly 30-40k tokens of dense JSON: large enough for a generous
+// page, small enough that a client can actually take it. Anything bigger comes
+// back flagged `truncated` with a note telling the caller to narrow the request,
+// which is a far better outcome than silently handing over something the client
+// must discard.
+//
+// Raise it with IVEDAAI_MAX_RESPONSE_BYTES if a specific call needs more.
+const DEFAULT_MAX_RESPONSE_BYTES = 131_072;
 
 function positiveIntEnv(name: string, fallback: number): number {
   const raw = process.env[name];
