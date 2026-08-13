@@ -27,6 +27,19 @@
  * measured. Where only the shape of the spec is known — `PUT /api/jobs` takes
  * no filter, for instance — the note says what is on the page and points at the
  * narrower operation, rather than describing behaviour nobody has run.
+ *
+ * The activation note also carries the asymmetry between its two directions,
+ * because both surprises land on whoever sets several cameras at once:
+ *
+ *     activate=true  on an already-active camera  -> 200, but jobId 297 was
+ *                                                    cancelled and 298 started
+ *     activate=false on an already-idle camera    -> 400 "Camera is not active"
+ *
+ * The first is the dangerous one. It looks idempotent from the status code and
+ * from `status`, which reads "Processing" before and after, while underneath the
+ * running job was cancelled and replaced — so "make sure these cameras are on"
+ * silently restarts the ones that already were. The job list is the only place
+ * the restart is visible.
  */
 
 export const CAPABILITY_NOTES: Record<string, string> = {
@@ -34,7 +47,11 @@ export const CAPABILITY_NOTES: Record<string, string> = {
     'NOTE: this is how a camera is activated and deactivated. activate=true starts analytics processing, ' +
     'activate=false stops it. The camera\'s "status" becomes "Processing" or "Idle" within about a second, ' +
     'and the deployment records an ACTIVATE/DEACTIVATE audit entry. There is no activation field on the ' +
-    'camera record — read the current state from "status", or with GET /api/cameras?isActivate=true|false.',
+    'camera record — read the current state from "status", or with GET /api/cameras?isActivate=true|false. ' +
+    'The two directions do not behave alike, so check "status" before calling either: activate=true on a ' +
+    'camera that is already active answers 200 but cancels its running job and starts a new one, which ' +
+    'interrupts analytics; activate=false on a camera that is already idle answers 400 "Camera is not ' +
+    'active". Both matter when setting several cameras at once.',
 
   "GET /api/cameras":
     'NOTE: isActivate filters on whether a camera is actively processing. The camera record carries no ' +
