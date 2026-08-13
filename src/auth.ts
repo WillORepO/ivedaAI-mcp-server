@@ -207,6 +207,27 @@ export class TokenManager {
   }
 
   private async requestToken(params: Record<string, string>): Promise<string> {
+    let lastRetryable: { status: number; body: string } | undefined;
+    for (let attempt = 0; ; attempt++) {
+      const outcome = await this.attemptToken(params);
+      if ("token" in outcome) return outcome.token;
+      lastRetryable = outcome.retryable;
+      if (attempt >= TOKEN_RETRY_DELAYS_MS.length) break;
+      await sleep(retryDelayMs(attempt, outcome.retryAfterMs));
+    }
+    throw new Error(
+      `IvedaAI OAuth token request failed (${lastRetryable!.status}) after ${TOKEN_RETRY_DELAYS_MS.length + 1} attempts ` +
+        `over ~${Math.round(TOKEN_RETRY_DELAYS_MS.reduce((a, b) => a + b, 0) / 100) / 10}s. The token endpoint rate-limits ` +
+        `repeated logins, so this usually means another client started at the same moment — two MCP clients, or a restart ` +
+        `racing an instance that is still running. It clears on its own within a few seconds; starting one client at a ` +
+        `time avoids it. Response: ${lastRetryable!.body.slice(0, 200)}`
+    );
+  }
+
+  /** One token request. Separates "got a token" from "worth trying again". */
+  private async attemptToken(
+    params: Record<string, string>
+  ): Promise<{ token: string } | { retryable: { status: number; body: string }; retryAfterMs?: number }> {
     // The vendor spec's parameters list the token endpoint's inputs as query
     // params, but live testing showed the real server rejects that (415) and
     // expects the standard OAuth2 application/x-www-form-urlencoded body
@@ -244,6 +265,12 @@ export class TokenManager {
     }
     const bodyText = await response.text();
     if (!response.ok) {
+      if (RETRYABLE_TOKEN_STATUSES.has(response.status)) {
+        return {
+          retryable: { status: response.status, body: bodyText },
+          retryAfterMs: parseRetryAfter(response.headers.get("retry-after")),
+        };
+      }
       throw new Error(
         `IvedaAI OAuth token request failed (${response.status} ${response.statusText}): ${bodyText.slice(0, 500)}`
       );
@@ -259,9 +286,71 @@ export class TokenManager {
     this.accessToken = parsed.access_token;
     this.refreshToken = parsed.refresh_token ?? this.refreshToken;
     this.expiresAtMs = Date.now() + (parsed.expires_in ?? 600) * 1000;
-    return this.accessToken;
+    return { token: this.accessToken };
   }
 }
+
+/**
+ * Statuses where trying the token request again is the right move.
+ *
+ * 429 is the one that actually bites: the endpoint rate-limits repeated logins,
+ * and six servers starting together produced five failures and one success.
+ * 503 is here because the same endpoint has been seen returning Apache's HTML
+ * 503 under sustained login load while the rest of the API stayed healthy.
+ *
+ * Nothing else retries. A 401 is a wrong password and will be wrong next time;
+ * retrying it just delays the message and adds failed logins to an audit trail.
+ */
+const RETRYABLE_TOKEN_STATUSES = new Set([429, 503]);
+
+/**
+ * Backoff schedule, measured rather than guessed.
+ *
+ * The lockout was timed against the deployment by triggering it and polling
+ * until a login succeeded: it clears in about 2 seconds, and the endpoint then
+ * admits roughly one login per 2 seconds — so the budget needed is set by how
+ * many clients start together, not by the lockout alone.
+ *
+ * Measured end to end, with servers started at the same instant:
+ *
+ *     clients   at ~3.1s      at ~6.1s
+ *        2       2/2           2/2
+ *        3       3/3           3/3
+ *        4       3/4           4/4
+ *        6       3/6           5/6
+ *
+ * Hence the fourth delay. Two or three at once is the ordinary case — two MCP
+ * clients, or a restart overlapping an instance still shutting down — and the
+ * shorter schedule already covered it; the extra step buys the fourth and fifth
+ * for a few seconds spent only on a path that is already failing. Beyond that
+ * the endpoint's own rate is the limit and no client-side schedule fixes it.
+ */
+const TOKEN_RETRY_DELAYS_MS = [400, 900, 1800, 3000];
+
+/**
+ * Jitter is the point, not a detail.
+ *
+ * The failure this exists for is several instances starting at the same moment.
+ * If they all back off on the same schedule they collide again on every retry,
+ * and a fixed schedule would faithfully reproduce the stampede it is meant to
+ * break up. Each delay is spread across ±50%.
+ */
+function retryDelayMs(attempt: number, retryAfterMs?: number): number {
+  const base = retryAfterMs ?? TOKEN_RETRY_DELAYS_MS[attempt] ?? TOKEN_RETRY_DELAYS_MS.at(-1)!;
+  return Math.round(base * (0.5 + Math.random()));
+}
+
+/** `Retry-After`, in seconds or as an HTTP date. Absent on this deployment, but free to honour. */
+function parseRetryAfter(header: string | null): number | undefined {
+  if (!header) return undefined;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 10_000);
+  const when = Date.parse(header);
+  if (Number.isFinite(when)) return Math.min(Math.max(when - Date.now(), 0), 10_000);
+  return undefined;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * A warning about the transport, or undefined when there is nothing to say.
