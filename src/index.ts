@@ -24,11 +24,25 @@ import { buildCameraBody, type CameraSpec } from "./cameraOnboarding.js";
 // JSON-RPC looks like a hang, which is a poor first impression for someone
 // checking they installed the right thing. These exit before the spec is
 // parsed or a transport is opened.
+/**
+ * This server's own version, from its package.json.
+ *
+ * Read once at module scope because two things need it and they used to
+ * disagree: `--version` printed this, while the MCP handshake reported
+ * `ctx.spec.info.version` — the IvedaAI *API* version baked into the bundled
+ * spec. The same binary answered "1.0.0" on the command line and "10.0.0" over
+ * MCP, and the second one is what a client displays and what a bug report
+ * quotes, so the version people cited matched no release that exists.
+ *
+ * Resolved relative to this module rather than the working directory, so it
+ * survives being launched from anywhere — which is how MCP clients launch it.
+ */
+const { createRequire } = await import("node:module");
+const SERVER_VERSION = (createRequire(import.meta.url)("../package.json") as { version: string }).version;
+
 const argv = process.argv.slice(2);
 if (argv.includes("--version") || argv.includes("-v")) {
-  const { createRequire } = await import("node:module");
-  const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
-  console.log(pkg.version);
+  console.log(SERVER_VERSION);
   process.exit(0);
 }
 if (argv.includes("--help") || argv.includes("-h")) {
@@ -98,7 +112,8 @@ const ACCESS_POLICY = policyFromEnv();
 const server = new McpServer(
   {
     name: "ivedaai-mcp-server",
-    version: ctx.spec.info?.version ?? "1.0.0",
+    // This server's version, not the API's. See SERVER_VERSION.
+    version: SERVER_VERSION,
   },
   // Said once at initialize instead of on all 62 tool descriptions. Clients are
   // not required to surface this, which is why nothing depends on it alone —

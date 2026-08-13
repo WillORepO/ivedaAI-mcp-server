@@ -18,6 +18,7 @@
  */
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 let mock: Server;
@@ -129,6 +130,28 @@ const operationsOf = (tools: any[], name: string): string[] =>
   tools.find((t) => t.name === name)?.inputSchema?.properties?.operation?.enum ?? [];
 
 describe("MCP server over stdio", () => {
+  /**
+   * The handshake used to report `ctx.spec.info.version` — the IvedaAI API
+   * version from the bundled spec, not this server's. `--version` printed the
+   * package version, so the same binary said "1.0.0" on the command line and
+   * "10.0.0" over MCP. The MCP one is what a client displays, so bug reports
+   * cited a version that was never released.
+   */
+  it("reports its own version at initialize, not the API's", async () => {
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+    const specVersion = JSON.parse(
+      readFileSync(new URL("../resources/openapi.json", import.meta.url), "utf8")
+    ).info?.version;
+    await withClient({}, async (c) => {
+      const result = await c.start();
+      expect(result.serverInfo.version).toBe(pkg.version);
+      // Guard the actual confusion, not just the happy path: the spec really
+      // does carry a different version, so this would have caught the bug.
+      expect(specVersion).toBeTruthy();
+      expect(result.serverInfo.version).not.toBe(specVersion);
+    });
+  }, 60_000);
+
   it("hands the client its instructions at initialize", async () => {
     await withClient({}, async (c) => {
       const result = await c.start();
