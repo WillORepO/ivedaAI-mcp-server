@@ -36,6 +36,7 @@ import {
 import { describeTag, describeBodySchema, SERVER_INSTRUCTIONS } from "../src/toolDocs.js";
 import { policyFromEnv, refusalReason, allowedOperations, isCollectionDelete } from "../src/accessPolicy.js";
 import { insecureTransportWarning, loadConfig } from "../src/auth.js";
+import { connectionFailureMessage } from "../src/netError.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -1538,5 +1539,89 @@ describe("insecureTransportWarning", () => {
   it("says nothing about an unparseable origin", () => {
     // loadConfig already rejects these; this must not throw on the way past.
     expect(insecureTransportWarning("not a url")).toBeUndefined();
+  });
+});
+
+/**
+ * Node reports every transport failure as `TypeError: fetch failed` and hides
+ * the reason on `err.cause`. Both fetch call sites used to rethrow that
+ * untouched, so a wrong hostname, an untrusted certificate and a closed port
+ * were indistinguishable to the model receiving the error.
+ */
+describe("connection failure messages", () => {
+  const fetchFailed = (cause?: unknown) => {
+    const err = new TypeError("fetch failed");
+    if (cause !== undefined) (err as { cause?: unknown }).cause = cause;
+    return err;
+  };
+  const coded = (code: string, message: string) => Object.assign(new Error(message), { code });
+
+  it("names the code and the underlying message", () => {
+    const msg = connectionFailureMessage(
+      fetchFailed(coded("ENOTFOUND", "getaddrinfo ENOTFOUND ivedaai.example.com")),
+      "GET /api/cameras",
+      "http://ivedaai.example.com/ainvr/api/cameras?size=1"
+    )!;
+    expect(msg).toContain("ENOTFOUND");
+    expect(msg).toContain("getaddrinfo ENOTFOUND ivedaai.example.com");
+    expect(msg).toContain("GET /api/cameras");
+    expect(msg).toContain("did not resolve");
+  });
+
+  it("keeps the query string out of the message", () => {
+    // Query parameters can carry ids and search terms; the origin is enough to
+    // identify which server could not be reached.
+    const msg = connectionFailureMessage(
+      fetchFailed(coded("ECONNREFUSED", "connect ECONNREFUSED 10.0.0.5:443")),
+      "GET /api/face/matches",
+      "http://10.0.0.5/ainvr/api/face/matches?identityNumber=A1234567"
+    )!;
+    expect(msg).toContain("http://10.0.0.5");
+    expect(msg).not.toContain("A1234567");
+    expect(msg).not.toContain("identityNumber");
+  });
+
+  it("points an untrusted certificate at the TLS switch, not back to http", () => {
+    const msg = connectionFailureMessage(
+      fetchFailed(coded("DEPTH_ZERO_SELF_SIGNED_CERT", "self-signed certificate")),
+      "the OAuth token request",
+      "https://10.0.0.5/ainvr/api/oauth2/token"
+    )!;
+    expect(msg).toContain("IVEDAAI_ALLOW_INSECURE_TLS=true");
+    // Reaching this code means TLS works; recommending http:// would be a
+    // downgrade dressed up as a fix.
+    expect(msg).not.toContain("use http://");
+  });
+
+  it("distinguishes the three first-run mistakes from each other", () => {
+    const of = (cause: unknown) =>
+      connectionFailureMessage(fetchFailed(cause), "GET /api/cameras", "https://host.example")!;
+    const messages = [
+      of(coded("ENOTFOUND", "getaddrinfo ENOTFOUND host.example")),
+      of(coded("ECONNREFUSED", "connect ECONNREFUSED 1.2.3.4:443")),
+      of(coded("DEPTH_ZERO_SELF_SIGNED_CERT", "self-signed certificate")),
+    ];
+    expect(new Set(messages).size).toBe(3);
+  });
+
+  it("handles a bare fetch failure with no cause at all", () => {
+    const msg = connectionFailureMessage(fetchFailed(), "GET /api/cameras", "https://host.example")!;
+    expect(msg).toContain("Could not reach");
+    expect(msg).toContain("host.example");
+  });
+
+  it("recognises undici's blocked-port failure, which carries no code", () => {
+    const msg = connectionFailureMessage(fetchFailed(new Error("bad port")), "GET /api/cameras", "http://h:9")!;
+    expect(msg).toContain("blocked by Node's HTTP client");
+  });
+
+  it("declines errors that are not transport failures, so callers rethrow them", () => {
+    expect(connectionFailureMessage(new Error("boom"), "GET /api/cameras", "https://h")).toBeUndefined();
+    expect(connectionFailureMessage("not an error", "GET /api/cameras", "https://h")).toBeUndefined();
+  });
+
+  it("says retrying will not help", () => {
+    const msg = connectionFailureMessage(fetchFailed(coded("EHOSTUNREACH", "no route")), "GET /api/cameras", "https://h")!;
+    expect(msg).toContain("retrying the same call will fail the same way");
   });
 });

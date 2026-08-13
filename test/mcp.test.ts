@@ -222,6 +222,35 @@ describe("MCP server over stdio", () => {
     });
   }, 60_000);
 
+  /**
+   * The mapper is unit-tested; this pins that it is actually reached.
+   *
+   * A closed port is the one transport failure that reproduces identically
+   * everywhere, so the assertion is on the code rather than on prose. Before
+   * this, the model got `fetch failed` and nothing else.
+   */
+  it("explains a connection failure instead of saying 'fetch failed'", async () => {
+    // Take a port, then give it back, so nothing is listening on it.
+    const probe = createServer();
+    await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+    const deadPort = (probe.address() as { port: number }).port;
+    await new Promise<void>((resolve) => probe.close(() => resolve()));
+
+    await withClient({ IVEDAAI_BASE_URL: `http://127.0.0.1:${deadPort}` }, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", {
+        name: "ivedaai_camera",
+        arguments: { operation: "GET /api/cameras", query: { size: 1 } },
+      });
+      const text = res.result.content[0].text as string;
+      expect(text).toContain("Could not reach the IvedaAI server");
+      expect(text).toContain("ECONNREFUSED");
+      expect(text).toContain(`127.0.0.1:${deadPort}`);
+      // The bare message this replaced must not be all the caller gets.
+      expect(text).not.toMatch(/:\s*fetch failed\s*$/);
+    });
+  }, 60_000);
+
   it("dispatches a real call and returns the response", async () => {
     await withClient({}, async (c) => {
       await c.start();
