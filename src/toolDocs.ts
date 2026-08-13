@@ -1,3 +1,4 @@
+import { capabilityNote } from "./capabilityNotes.js";
 import type { Operation, ParamDef, TagGroup } from "./swagger.js";
 import { resolveSchema } from "./swagger.js";
 import { lossyUpdateWarning } from "./partialUpdate.js";
@@ -177,6 +178,12 @@ function describeOperation(spec: any, op: Operation, gaps: Record<string, RoundT
   if (formDataParams.length) {
     lines.push(`  form fields (pass via body): ${formDataParams.map(formatNonBodyParam).join(", ")}`);
   }
+
+  // What this operation is for, when its summary does not say. Placed above the
+  // guards because it answers an earlier question: those two correct a call the
+  // caller is already making, this one is why the caller would pick it at all.
+  const capability = capabilityNote(op.id);
+  if (capability) lines.push(`  ${capability}`);
 
   // Stated in the docs as well as enforced at call time: a caller that knows
   // beforehand can send the right body instead of learning from a refusal.
