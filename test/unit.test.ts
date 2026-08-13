@@ -37,6 +37,7 @@ import { describeTag, describeBodySchema, SERVER_INSTRUCTIONS } from "../src/too
 import { policyFromEnv, refusalReason, allowedOperations, isCollectionDelete } from "../src/accessPolicy.js";
 import { insecureTransportWarning, loadConfig } from "../src/auth.js";
 import { connectionFailureMessage } from "../src/netError.js";
+import { capabilityNote, CAPABILITY_NOTES } from "../src/capabilityNotes.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -1623,5 +1624,59 @@ describe("connection failure messages", () => {
   it("says retrying will not help", () => {
     const msg = connectionFailureMessage(fetchFailed(coded("EHOSTUNREACH", "no route")), "GET /api/cameras", "https://h")!;
     expect(msg).toContain("retrying the same call will fail the same way");
+  });
+});
+
+/**
+ * Camera activation is invisible in the generated docs without help.
+ *
+ * `POST /api/cameras/{cameraId}/jobs — Operate jobs by camera id` with a
+ * boolean `activate` is the whole capability, and no operation id contains the
+ * word "activate". Verified against a deployment: it flips `status` between
+ * "Processing" and "Idle" in about a second and writes an ACTIVATE/DEACTIVATE
+ * audit entry — so a model concluding the API cannot do it would be wrong about
+ * something the deployment itself names in plain English.
+ */
+describe("capability notes", () => {
+  const ctxNotes = loadSwagger();
+  const cameraGroup = ctxNotes.tags.find((g) => g.tag === "Camera")!;
+  const cameraDocs = describeTag(ctxNotes.spec, cameraGroup);
+
+  it("says the jobs operation is what activates a camera", () => {
+    const note = capabilityNote("POST /api/cameras/{cameraId}/jobs")!;
+    expect(note).toContain("activated and deactivated");
+    expect(note).toContain("Processing");
+    expect(note).toContain("Idle");
+  });
+
+  it("puts the note in the tool description, where a model reads it", () => {
+    expect(cameraDocs).toContain("POST /api/cameras/{cameraId}/jobs");
+    // The word the model would search for, now present in the Camera tool.
+    expect(/activated and deactivated/.test(cameraDocs)).toBe(true);
+  });
+
+  it("tells a reader of the camera list how to see the current state", () => {
+    // The record has no activation field, so the filter and `status` are the
+    // only ways to know — and neither is obvious from the schema.
+    const note = capabilityNote("GET /api/cameras")!;
+    expect(note).toContain("isActivate");
+    expect(note).toContain("status");
+    expect(note).toContain("POST /api/cameras/{cameraId}/jobs");
+  });
+
+  it("annotates only operations that exist in the spec", () => {
+    // A note keyed to an id that has been renamed or removed would never render
+    // and would quietly rot.
+    const ids = new Set(ctxNotes.tags.flatMap((g) => g.operations.map((o) => o.id)));
+    for (const id of Object.keys(CAPABILITY_NOTES)) {
+      expect(ids.has(id), `${id} is annotated but not in the spec`).toBe(true);
+    }
+  });
+
+  it("leaves ordinary operations alone", () => {
+    // The point is a handful of genuinely hidden capabilities, not commentary
+    // on every endpoint — each note is paid for on every connect.
+    expect(capabilityNote("GET /api/cameras/{cameraId}")).toBeUndefined();
+    expect(Object.keys(CAPABILITY_NOTES).length).toBeLessThan(6);
   });
 });
