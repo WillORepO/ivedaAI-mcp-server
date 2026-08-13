@@ -1,4 +1,5 @@
 import { fetch, Agent, type Dispatcher } from "undici";
+import { connectionFailureMessage } from "./netError.js";
 import type { SwaggerContext } from "./swagger.js";
 
 export interface IvedaAIConfig {
@@ -204,6 +205,10 @@ export class TokenManager {
       if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
         throw new Error(`IvedaAI OAuth token request timed out after ${this.config.timeoutMs}ms.`);
       }
+      // The token request is the first call this server makes, so a
+      // misconfigured base URL surfaces here before anything else.
+      const connection = connectionFailureMessage(err, "the OAuth token request", url.toString());
+      if (connection) throw new Error(connection);
       throw err;
     }
     const bodyText = await response.text();

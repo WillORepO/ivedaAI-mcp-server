@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import { fetch, FormData, type Response } from "undici";
 import type { Operation, ParamDef } from "./swagger.js";
 import type { TokenManager } from "./auth.js";
+import { connectionFailureMessage } from "./netError.js";
 import { redactSecrets } from "./redact.js";
 
 export interface FileInput {
@@ -512,6 +513,8 @@ export async function executeOperation(
             `The server may be unreachable, or this may be a continuous-streaming endpoint not suited to tool calls.`
         );
       }
+      const connection = connectionFailureMessage(err, operation.id, url.toString());
+      if (connection) throw new Error(connection);
       throw err;
     }
   };
