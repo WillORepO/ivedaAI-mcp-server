@@ -1649,6 +1649,17 @@ describe("capability notes", () => {
     expect(note).toContain("Idle");
   });
 
+  it("warns that the two directions do not behave alike", () => {
+    // Measured: activate=true on an already-active camera answered 200 while
+    // cancelling job 297 and starting 298, and activate=false on an idle one
+    // answered 400. Both bite a caller setting several cameras at once, and
+    // neither is visible from `status`, which reads "Processing" either side of
+    // the restart.
+    const note = capabilityNote("POST /api/cameras/{cameraId}/jobs")!;
+    expect(note).toContain("Camera is not active");
+    expect(note).toContain("interrupts analytics");
+  });
+
   it("puts the note in the tool description, where a model reads it", () => {
     expect(cameraDocs).toContain("POST /api/cameras/{cameraId}/jobs");
     // The word the model would search for, now present in the Camera tool.
