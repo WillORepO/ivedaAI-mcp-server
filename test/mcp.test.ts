@@ -24,6 +24,9 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 let mock: Server;
 let port: number;
 
+/** Size of the mock JPEG. Larger than the small cap the truncation test sets. */
+const JPEG_BYTES = 9000;
+
 beforeAll(async () => {
   mock = createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -35,6 +38,15 @@ beforeAll(async () => {
     if (url.pathname === "/ainvr/api/cameras" && req.method === "GET") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ content: [{ cameraId: 1, name: "Front Door" }], totalElements: 1 }));
+      return;
+    }
+    // A binary endpoint, big enough to exceed a deliberately small cap. The
+    // descriptor this produces had no coverage at all, which is how it came to
+    // report the cap as the image's size.
+    if (url.pathname === "/ainvr/api/streaming/1/live.jpg") {
+      const jpeg = Buffer.alloc(JPEG_BYTES, 0xab);
+      res.writeHead(200, { "Content-Type": "image/jpeg", "Content-Length": String(jpeg.length) });
+      res.end(jpeg);
       return;
     }
     res.writeHead(404, { "Content-Type": "application/json" });
@@ -271,6 +283,63 @@ describe("MCP server over stdio", () => {
       expect(text).toContain(`127.0.0.1:${deadPort}`);
       // The bare message this replaced must not be all the caller gets.
       expect(text).not.toMatch(/:\s*fetch failed\s*$/);
+    });
+  }, 60_000);
+
+  /**
+   * The binary descriptor had no coverage, and carried two untruths.
+   *
+   * `byteLength` was `bytes.byteLength` — what was read before the cap — so a
+   * truncated response reported the cap as the file's size while the real
+   * figure sat in content-length one line above. And the note said the
+   * response "exceeded the cap and was not returned inline", which reads as
+   * cause and effect. Binary is never returned inline at any cap, so that
+   * pointed at a fix that does not exist.
+   */
+  const jpegCall = {
+    name: "ivedaai_streaming",
+    arguments: { operation: "GET /api/streaming/{cameraId}/{type}.jpg", path: { cameraId: 1, type: "live" } },
+  };
+
+  it("reports a binary body's real size when it fits under the cap", async () => {
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", { name: jpegCall.name, arguments: jpegCall.arguments });
+      const p = JSON.parse(res.result.content[0].text);
+      expect(p.status).toBe(200);
+      expect(p.isBinary).toBe(true);
+      expect(p.truncated).toBeFalsy();
+      expect(p.body.byteLength).toBe(JPEG_BYTES);
+      expect(p.body.bytesRead).toBeUndefined();
+      expect(p.body.note).not.toContain("cap");
+    });
+  }, 60_000);
+
+  it("still reports the real size when the cap truncated the read", async () => {
+    const cap = 4096;
+    await withClient({ IVEDAAI_MAX_RESPONSE_BYTES: String(cap) }, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", { name: jpegCall.name, arguments: jpegCall.arguments });
+      const p = JSON.parse(res.result.content[0].text);
+      expect(p.truncated).toBe(true);
+      // The bug: this used to be `cap`.
+      expect(p.body.byteLength).toBe(JPEG_BYTES);
+      expect(p.body.bytesRead).toBe(cap);
+      expect(p.body.note).toContain(`${cap}-byte cap`);
+    });
+  }, 60_000);
+
+  it("does not blame the cap for binary never being inlined", async () => {
+    // Raising the cap above the file size still yields a descriptor, so a note
+    // implying the cap is what withheld the bytes would be misleading.
+    await withClient({ IVEDAAI_MAX_RESPONSE_BYTES: String(JPEG_BYTES * 10) }, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", { name: jpegCall.name, arguments: jpegCall.arguments });
+      const p = JSON.parse(res.result.content[0].text);
+      expect(p.truncated).toBeFalsy();
+      expect(p.body.byteLength).toBe(JPEG_BYTES);
+      expect(p.body.note).toContain("not returned inline");
+      expect(p.body.note).not.toContain("exceeded");
     });
   }, 60_000);
 
