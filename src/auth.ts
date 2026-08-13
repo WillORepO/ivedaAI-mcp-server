@@ -20,7 +20,38 @@ export interface IvedaAIConfig {
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_MAX_RESPONSE_BYTES = 2_000_000;
+// Sized from what a client can receive, not from what the API can send.
+//
+// 2 MB was the original value, chosen so the API could never be truncated. That
+// is the wrong axis, and the gap showed up the first time a real MCP client was
+// connected: `GET /api/cameras?size=500` returned 413 KB and never reached the
+// model at all.
+//
+// Bisected against that client, one page of cameras at a time:
+//
+//     1 record    ~8 KB   reached the model
+//     4 records  ~38 KB   reached the model
+//     6 records   57 KB   persisted to a file, 2 KB preview only
+//     8 records   74 KB   rejected outright
+//
+// So the ceiling is between 38 and 57 KB there. 32 KB sits below the largest
+// confirmed pass with room to spare, which matters because the real limit is a
+// *token* budget: the same byte count costs more or fewer tokens depending on
+// how dense the JSON is, and camera records are unusually repetitive.
+//
+// Deliberately not bisected finer. The extra precision would not change this
+// number, and a value derived to the byte from one endpoint on one client would
+// be false precision.
+//
+// The cap counts raw response bytes, but the client is handed the result
+// pretty-printed (`JSON.stringify(payload, null, 2)`), which is 15-20% larger.
+// So the budget has to account for that amplification: 28 KB raw lands around
+// 34 KB rendered, inside the proven range, where 32 KB raw would land at ~38 KB
+// — exactly the largest size confirmed to pass, with no margin at all.
+//
+// Raise it with IVEDAAI_MAX_RESPONSE_BYTES where a specific call needs more and
+// the client can take it.
+const DEFAULT_MAX_RESPONSE_BYTES = 28_672;
 
 function positiveIntEnv(name: string, fallback: number): number {
   const raw = process.env[name];

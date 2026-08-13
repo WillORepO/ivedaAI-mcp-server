@@ -307,6 +307,11 @@ describe("executeOperation against a mock server", () => {
     expect(result.status).toBe(200);
     expect(result.truncated).toBe(true);
     expect((result.body as string).length).toBeLessThanOrEqual(1024);
+    // Truncated JSON is unparseable, so the flag alone leaves a caller stuck.
+    // The note is what makes a smaller cap an improvement rather than a
+    // different failure.
+    expect(result.note).toContain("Narrow the request");
+    expect(result.note).toContain("reduce \"size\"");
   });
 
   it("rejects unknown query parameters before sending anything", async () => {

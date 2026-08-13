@@ -28,6 +28,8 @@ export interface OperationResult {
   isBinary?: boolean;
   /** True when the body was cut off at the byte cap. */
   truncated?: boolean;
+  /** Present when `truncated`: what the caller should do about it. */
+  note?: string;
   /** True when reading the body hit the timeout (typical for SSE/MJPEG streams); body holds what was read. */
   timedOut?: boolean;
 }
@@ -575,6 +577,18 @@ export async function executeOperation(
     body: parsedBody,
     isBinary,
     ...(truncated ? { truncated } : {}),
+    // A truncated JSON body is broken JSON, so the caller gets a string it
+    // cannot parse. Saying only "truncated" leaves it to guess what to do; the
+    // useful answer is almost always to ask for less.
+    ...(truncated && !isBinary
+      ? {
+          note:
+            `Response exceeded the ${tokenManager.maxResponseBytes}-byte cap and was cut off, so "body" is ` +
+            `partial text rather than parsed JSON. Narrow the request and try again — reduce "size", add a ` +
+            `filter, or request a single record by id. Raising IVEDAAI_MAX_RESPONSE_BYTES is the last resort, ` +
+            `because a larger response may exceed what this client can accept.`,
+        }
+      : {}),
     ...(timedOut ? { timedOut } : {}),
   };
 }
