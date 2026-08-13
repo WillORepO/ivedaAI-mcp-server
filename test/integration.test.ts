@@ -29,6 +29,10 @@ const seen: Seen[] = [];
 let tokenRequests = 0;
 let apiCallCount = 0;
 let rejectNextApiCallWith401 = false;
+/** Number of token requests the mock should answer with 429 before letting one through. */
+let rateLimitNextTokenRequests = 0;
+/** Every token-request status the mock returned, in order. */
+const tokenStatuses: number[] = [];
 
 function makeConfig(overrides: Partial<IvedaAIConfig> = {}): IvedaAIConfig {
   return {
@@ -78,7 +82,23 @@ beforeAll(async () => {
           res.end("missing required form field(s)");
           return;
         }
+        // A credential the mock refuses outright, so the non-retry of a 401
+        // can be told apart from the retry of a 429.
+        if (form.get("password") === "wrong-password") {
+          tokenStatuses.push(401);
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ type: "LoginAttempt", message: "Invalid username or password" }));
+          return;
+        }
+        if (rateLimitNextTokenRequests > 0) {
+          rateLimitNextTokenRequests -= 1;
+          tokenStatuses.push(429);
+          res.writeHead(429, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ type: "Too Many Requests", message: "/ainvr/api/oauth2/token" }));
+          return;
+        }
         tokenRequests += 1;
+        tokenStatuses.push(200);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
@@ -278,6 +298,52 @@ describe("executeOperation against a mock server", () => {
     expect(result.status).toBe(200);
     expect(tokenRequests).toBe(tokensBefore + 1);
   });
+
+  /**
+   * The token endpoint rate-limits repeated logins. Measured against the
+   * deployment, six servers starting at the same instant produced one success
+   * and five 429s — which is simply two MCP clients connected at once, or a
+   * restart racing an instance that has not exited yet. The lockout cleared in
+   * about two seconds, so a short retry turns a hard failure into a pause.
+   */
+  it("retries a rate-limited token request instead of failing the call", async () => {
+    tokenStatuses.length = 0;
+    rateLimitNextTokenRequests = 2;
+    const tm = new TokenManager(makeConfig());
+    const result = await executeOperation(tm, findOp("GET /api/cameras"), {});
+    expect(result.status).toBe(200);
+    expect(tokenStatuses).toEqual([429, 429, 200]);
+  }, 20_000);
+
+  it("gives up with an explanation once the retries are spent", async () => {
+    tokenStatuses.length = 0;
+    // One more than the schedule allows, so every attempt is refused.
+    rateLimitNextTokenRequests = 99;
+    const tm = new TokenManager(makeConfig());
+    await expect(executeOperation(tm, findOp("GET /api/cameras"), {})).rejects.toThrow(/429/);
+    // Five attempts total: the first plus four retries.
+    expect(tokenStatuses).toEqual([429, 429, 429, 429, 429]);
+    rateLimitNextTokenRequests = 0;
+  }, 20_000);
+
+  it("names the likely cause rather than just the status", async () => {
+    rateLimitNextTokenRequests = 99;
+    const tm = new TokenManager(makeConfig());
+    await expect(executeOperation(tm, findOp("GET /api/cameras"), {})).rejects.toThrow(
+      /another client started at the same moment/
+    );
+    rateLimitNextTokenRequests = 0;
+  }, 20_000);
+
+  it("does not retry a wrong password", async () => {
+    // 401 will be 401 next time too. Retrying delays the message and writes
+    // extra failed logins into the deployment's audit trail.
+    tokenStatuses.length = 0;
+    const tm = new TokenManager(makeConfig({ password: "wrong-password" }));
+    await expect(executeOperation(tm, findOp("GET /api/cameras"), {})).rejects.toThrow();
+    // One attempt, refused, not retried.
+    expect(tokenStatuses).toEqual([401]);
+  }, 20_000);
 
   it("creates a StreamJob (optional-file multipart op) without a file", async () => {
     const tm = new TokenManager(makeConfig());
