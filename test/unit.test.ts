@@ -1464,9 +1464,11 @@ describe("the bundled API document ships nothing deployment-specific", () => {
 });
 
 describe("response size cap", () => {
-  // The default exists to fit a *client*, not the API. Measured: 47 cameras at
-  // size=500 is 413 KB, which a real MCP client refused as too large — each
-  // camera embeds its full engineProfile, ~3.8 KB of the ~5.2 KB record.
+  // The default exists to fit a *client*, not the API. Bisected against a real
+  // MCP client: 38 KB reached the model, 57 KB was persisted to a file instead,
+  // 74 KB was rejected outright. The cap counts raw bytes while the client sees
+  // the result pretty-printed and 15-20% larger, so 28 KB raw lands near 34 KB
+  // rendered — inside the proven range rather than at its edge.
   const withEnv = <T>(vars: Record<string, string | undefined>, fn: () => T): T => {
     const prev: Record<string, string | undefined> = {};
     for (const [k, val] of Object.entries(vars)) {
@@ -1493,9 +1495,9 @@ describe("response size cap", () => {
     const cfg = withEnv({ ...credentials, IVEDAAI_MAX_RESPONSE_BYTES: undefined }, () =>
       loadConfig(loadSwagger())
     );
-    expect(cfg.maxResponseBytes).toBe(131_072);
-    // The measurement that set it.
-    expect(cfg.maxResponseBytes).toBeLessThan(413_206);
+    expect(cfg.maxResponseBytes).toBe(28_672);
+    // Below the smallest payload observed to be withheld from the model (57 KB).
+    expect(cfg.maxResponseBytes).toBeLessThan(57_000);
   });
 
   it("still honours an explicit override", () => {

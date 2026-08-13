@@ -8,7 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- `IVEDAAI_MAX_RESPONSE_BYTES` now defaults to 128 KB rather than 2 MB. The old value was chosen to
+- `IVEDAAI_MAX_RESPONSE_BYTES` now defaults to 28 KB rather than 2 MB. The old value was chosen to
   avoid truncating what the API might send; the binding constraint is what a model client can
   receive. A truncated response now carries a `note` telling the caller to narrow the request.
 
