@@ -540,13 +540,30 @@ export async function executeOperation(
     // endpoint that is the difference between "some bytes" and "the face-target
     // watchlist as a zip", and it costs nothing.
     const filename = /filename\s*=\s*"?([^";]+)"?/i.exec(contentDisposition)?.[1];
+    // The real size, when the server declared one. `bytes.byteLength` is only
+    // what was read before the cap, so on a truncated response it reports the
+    // cap itself: a 44,574-byte JPEG came back claiming to be 28,672 bytes,
+    // with the true figure sitting in the content-length header directly above
+    // it. Prefer the header and fall back to the read length.
+    const declared = Number(response.headers.get("content-length"));
+    const byteLength = Number.isFinite(declared) && declared > 0 ? declared : bytes.byteLength;
     parsedBody = {
       contentType,
-      byteLength: bytes.byteLength,
+      byteLength,
+      // Only meaningful when the two differ, and then it is the honest account
+      // of what this server actually holds.
+      ...(truncated && byteLength !== bytes.byteLength ? { bytesRead: bytes.byteLength } : {}),
       ...(filename ? { filename } : {}),
-      note: truncated
-        ? `Binary response exceeded the ${tokenManager.maxResponseBytes}-byte cap and was not returned inline.`
-        : "Binary response body was not returned inline.",
+      // Binary is never returned inline, whatever the cap. The old truncated
+      // wording — "exceeded the N-byte cap and was not returned inline" —
+      // implied the cap was the reason and that raising it would produce the
+      // image. Raising the cap to 200 KB still returns this descriptor, so the
+      // note pointed at a fix that does not exist.
+      note:
+        "Binary response bodies are not returned inline; this is a description of what the endpoint returned." +
+        (truncated
+          ? ` Only the first ${bytes.byteLength} bytes were read, because of the ${tokenManager.maxResponseBytes}-byte cap.`
+          : ""),
     };
   } else {
     const text = new TextDecoder().decode(bytes);
