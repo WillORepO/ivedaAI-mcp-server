@@ -5,7 +5,7 @@ import { z } from "zod";
 import { loadSwagger, tagToToolName, resolveRef, schemaDefinitions, schemaRef, type Operation } from "./swagger.js";
 import { loadConfig, TokenManager, insecureTransportWarning } from "./auth.js";
 import { executeOperation } from "./request.js";
-import { describeTag, SERVER_INSTRUCTIONS } from "./toolDocs.js";
+import { describeTag, SERVER_INSTRUCTIONS, READ_ONLY_NOTE, READ_ONLY_TOOL_NOTE } from "./toolDocs.js";
 import {
   TRIGGER_TYPES,
   buildTriggerBody,
@@ -79,14 +79,35 @@ try {
   process.exit(1);
 }
 
+/**
+ * What this server will let a caller do. See src/accessPolicy.ts.
+ *
+ * Applied in two places, though not equally. Filtering the operation enum is
+ * what actually protects a generated tool: with the operation absent from the
+ * enum, the SDK's schema validation rejects the call before the handler runs,
+ * which `test/mcp.test.ts` pins. The `refusalReason` check below is therefore
+ * unreachable for generated tools unless the filter and the policy ever
+ * disagree — it earns its place on the hand-written tools, which bypass the
+ * enum, and as the thing that fails safe if that invariant breaks.
+ *
+ * Read before the server is constructed, because read-only changes what the
+ * server says about itself at initialize as well as what it offers.
+ */
+const ACCESS_POLICY = policyFromEnv();
+
 const server = new McpServer(
   {
     name: "ivedaai-mcp-server",
     version: ctx.spec.info?.version ?? "1.0.0",
   },
   // Said once at initialize instead of on all 62 tool descriptions. Clients are
-  // not required to surface this, which is why nothing depends on it alone.
-  { instructions: SERVER_INSTRUCTIONS }
+  // not required to surface this, which is why nothing depends on it alone —
+  // hence the shorter note on each tool description too.
+  {
+    instructions: ACCESS_POLICY.readOnly
+      ? `${SERVER_INSTRUCTIONS}\n\n${READ_ONLY_NOTE}`
+      : SERVER_INSTRUCTIONS,
+  }
 );
 
 /**
@@ -98,19 +119,6 @@ const server = new McpServer(
  * fix would be noticed. Nothing else should set this.
  */
 const ENFORCE_LOSSY_UPDATE_GUARD = process.env.IVEDAAI_ALLOW_LOSSY_UPDATE !== "true";
-
-/**
- * What this server will let a caller do. See src/accessPolicy.ts.
- *
- * Applied in two places, though not equally. Filtering the operation enum is
- * what actually protects a generated tool: with the operation absent from the
- * enum, the SDK's schema validation rejects the call before the handler runs,
- * which `test/mcp.test.ts` pins. The `refusalReason` check below is therefore
- * unreachable for generated tools unless the filter and the policy ever
- * disagree — it earns its place on the hand-written tools, which bypass the
- * enum, and as the thing that fails safe if that invariant breaks.
- */
-const ACCESS_POLICY = policyFromEnv();
 
 /** Derived once at startup: update ops whose fields no read endpoint returns. */
 const roundTripGaps = computeRoundTripGaps(ctx.spec);
@@ -141,7 +149,13 @@ for (const group of ctx.tags) {
       // Describe the allowed operations, not the whole tag: in read-only mode
       // the write operations are gone from the enum, and listing them here
       // would spend context advertising calls that can only be refused.
-      description: describeTag(ctx.spec, { ...group, operations }),
+      //
+      // But say that they were withheld. Absence on its own reads as "the API
+      // cannot do this", and the SDK's enum rejection does not correct that
+      // impression — see READ_ONLY_NOTE.
+      description: ACCESS_POLICY.readOnly
+        ? `${READ_ONLY_TOOL_NOTE}\n${describeTag(ctx.spec, { ...group, operations })}`
+        : describeTag(ctx.spec, { ...group, operations }),
       annotations: {
         readOnlyHint: isReadOnly,
         destructiveHint: hasDestructive,

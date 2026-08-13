@@ -211,6 +211,47 @@ export const SERVER_INSTRUCTIONS =
   `ivedaai_get_schema with that name for the complete field list.`;
 
 /**
+ * Why the write operations are missing, for a server running read-only.
+ *
+ * Appended to `SERVER_INSTRUCTIONS` and, in short form, to every tool
+ * description. Both, because the two say different things to a model that has
+ * just been refused.
+ *
+ * The refusal a read-only server actually produces is not
+ * `refusalReason`'s — that text is unreachable for generated tools, because
+ * `allowedOperations` strips the writes from the `operation` enum and the SDK
+ * rejects the call during schema validation, before any handler runs. What
+ * reaches the model is a bare `invalid_value` listing the GETs that remain.
+ *
+ * That error is accurate and useless. It says the value is not in the enum; it
+ * does not say the enum was filtered, so the only available reading is that the
+ * API has no such operation. A model told that `POST /api/cameras` is not a
+ * valid operation for `ivedaai_camera` will report that IvedaAI cannot create
+ * cameras — a confident, wrong, and entirely reasonable inference from what it
+ * was shown.
+ *
+ * Restoring the good message by keeping writes in the enum and refusing in the
+ * handler is the wrong trade: it re-advertises calls that can only fail, which
+ * costs context on every tool and invites the retry loop the filter exists to
+ * prevent. Naming the cause where the model is already looking is cheaper.
+ */
+export const READ_ONLY_NOTE =
+  `This server is running read-only (IVEDAAI_READ_ONLY=true), so only GET operations are listed. The ` +
+  `write operations exist in the IvedaAI API but are withheld here: a call naming one is rejected as an ` +
+  `invalid "operation" value. Treat that rejection as this server's policy, not as evidence the API ` +
+  `lacks the operation, and report it that way rather than concluding the capability is missing.`;
+
+/**
+ * The same point, compressed, for the per-tool header.
+ *
+ * Kept short because it is paid 62 times — though only in read-only mode, where
+ * withholding the writes has already saved far more than this costs.
+ */
+export const READ_ONLY_TOOL_NOTE =
+  `Read-only mode: only GET operations are listed. Writes are withheld by this server, not absent from ` +
+  `the API.`;
+
+/**
  * Builds the full tool description text for a tag, enumerating every operation
  * within it.
  *
