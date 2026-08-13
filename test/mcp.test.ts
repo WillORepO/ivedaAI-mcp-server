@@ -173,6 +173,55 @@ describe("MCP server over stdio", () => {
     });
   }, 60_000);
 
+  /**
+   * The refusal a read-only server produces is the SDK's, not ours.
+   *
+   * `allowedOperations` strips the writes from the enum, so schema validation
+   * rejects `POST /api/cameras` before any handler runs and `refusalReason`'s
+   * explanation never executes. What the model receives is `invalid_value` and
+   * a list of the surviving GETs — from which the only available inference is
+   * that the API cannot create cameras.
+   *
+   * These three pin the correction rather than the bug: the rejection stays as
+   * it is, and the reason is put where the model is already reading.
+   */
+  it("tells the client why writes are missing, at initialize", async () => {
+    await withClient({ IVEDAAI_READ_ONLY: "true" }, async (c) => {
+      const result = await c.start();
+      expect(result.instructions).toContain("IVEDAAI_READ_ONLY=true");
+      // The inference to head off, not just the fact of the mode.
+      expect(result.instructions).toContain("not as evidence the API lacks the operation");
+    });
+  }, 60_000);
+
+  it("repeats it on each tool, for clients that drop instructions", async () => {
+    await withClient({ IVEDAAI_READ_ONLY: "true" }, async (c) => {
+      await c.start();
+      const tools = (await c.call("tools/list")).result.tools;
+      // Only the generated tools: they are the ones with an operation enum, and
+      // so the only ones anything was filtered out of. `ivedaai_get_schema`
+      // looks up a definition rather than calling the API, so read-only takes
+      // nothing from it and the note would be noise.
+      const generated = tools.filter((t: any) => operationsOf(tools, t.name).length > 0);
+      expect(generated.length).toBeGreaterThan(0);
+      for (const tool of generated) {
+        expect(tool.description, tool.name).toContain("Read-only mode");
+      }
+    });
+  }, 60_000);
+
+  it("says none of it when writes are actually available", async () => {
+    await withClient({}, async (c) => {
+      const result = await c.start();
+      expect(result.instructions).not.toContain("Read-only mode");
+      expect(result.instructions).not.toContain("IVEDAAI_READ_ONLY");
+      const tools = (await c.call("tools/list")).result.tools;
+      for (const tool of tools) {
+        expect(tool.description, tool.name).not.toContain("Read-only mode");
+      }
+    });
+  }, 60_000);
+
   it("dispatches a real call and returns the response", async () => {
     await withClient({}, async (c) => {
       await c.start();
