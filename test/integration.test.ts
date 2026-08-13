@@ -39,6 +39,10 @@ function makeConfig(overrides: Partial<IvedaAIConfig> = {}): IvedaAIConfig {
     password: "testpass",
     timeoutMs: 700,
     maxResponseBytes: 64 * 1024,
+    // Off by default in fixtures: these exercise JSON paths, and an
+    // attached image would change what the assertions are reading.
+    inlineImages: false,
+    maxImageBytes: 4 * 1024 * 1024,
     redactSecrets: true,
     ...overrides,
   };

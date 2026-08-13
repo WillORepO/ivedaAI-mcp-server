@@ -33,6 +33,15 @@ export interface OperationResult {
   note?: string;
   /** True when reading the body hit the timeout (typical for SSE/MJPEG streams); body holds what was read. */
   timedOut?: boolean;
+  /**
+   * A complete image, ready to hand to the client as viewable content.
+   *
+   * Kept off `body` deliberately: it is base64, and putting it there would
+   * also serialise it into the JSON text of the result, sending the same
+   * picture twice — once as something the model can look at and once as tens
+   * of kilobytes it can only read as gibberish.
+   */
+  image?: { mimeType: string; base64: string };
 }
 
 /** Response headers worth echoing to the model; everything else (incl. Set-Cookie) is dropped. */
@@ -224,6 +233,25 @@ const TEXTUAL_CONTENT_TYPE =
  * merely inconvenient. Readable text stays readable; only an undeclared type
  * needs the header's opinion.
  */
+/**
+ * Image types a client can actually render, and this API actually returns.
+ *
+ * An allowlist rather than `image/*` on purpose: an inlined image a client
+ * cannot decode is worse than a descriptor, because it costs the bytes and
+ * delivers nothing. These four are what MCP clients accept, and the spec
+ * declares only jpeg and png across its 18 image endpoints.
+ */
+const INLINEABLE_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+
+/** The bare type, with any charset or boundary parameters removed. */
+export function imageMimeType(contentType: string): string {
+  return contentType.split(";")[0]!.trim().toLowerCase();
+}
+
+export function isInlineableImage(contentType: string): boolean {
+  return INLINEABLE_IMAGE_TYPES.has(imageMimeType(contentType));
+}
+
 export function isBinaryResponse(contentType: string, contentDisposition: string): boolean {
   const type = contentType.trim().toLowerCase();
   if (type === "") return /^\s*attachment\b/i.test(contentDisposition);
@@ -532,8 +560,17 @@ export async function executeOperation(
   const contentType = response.headers.get("content-type") ?? "";
   const contentDisposition = response.headers.get("content-disposition") ?? "";
   const isBinary = isBinaryResponse(contentType, contentDisposition);
-  const { bytes, truncated, timedOut } = await readBodyCapped(response, tokenManager.maxResponseBytes);
+  // An image gets its own, larger budget. The response cap is sized for JSON a
+  // model has to read as text, where bytes and tokens track each other. An
+  // image does not work that way — a client charges for it by dimensions, not
+  // by the length of its base64 — so holding images to the JSON budget would
+  // truncate every one of them (a camera JPEG is ~45 KB against a 28 KB cap)
+  // to save a cost that is not being incurred.
+  const wantsImage = tokenManager.inlineImages && isInlineableImage(contentType);
+  const readCap = wantsImage ? Math.max(tokenManager.maxImageBytes, tokenManager.maxResponseBytes) : tokenManager.maxResponseBytes;
+  const { bytes, truncated, timedOut } = await readBodyCapped(response, readCap);
 
+  let image: OperationResult["image"];
   let parsedBody: unknown;
   if (isBinary) {
     // Surface the download filename when the server offers one: for an export
@@ -547,6 +584,12 @@ export async function executeOperation(
     // it. Prefer the header and fall back to the read length.
     const declared = Number(response.headers.get("content-length"));
     const byteLength = Number.isFinite(declared) && declared > 0 ? declared : bytes.byteLength;
+    // Hand the picture over when it arrived whole and is a type a client can
+    // display. A truncated image is a corrupt file, not a smaller one, so a
+    // partial read is never inlined — the descriptor still describes it.
+    if (wantsImage && !truncated && !timedOut && bytes.byteLength > 0) {
+      image = { mimeType: imageMimeType(contentType), base64: Buffer.from(bytes).toString("base64") };
+    }
     parsedBody = {
       contentType,
       byteLength,
@@ -559,11 +602,13 @@ export async function executeOperation(
       // implied the cap was the reason and that raising it would produce the
       // image. Raising the cap to 200 KB still returns this descriptor, so the
       // note pointed at a fix that does not exist.
-      note:
-        "Binary response bodies are not returned inline; this is a description of what the endpoint returned." +
-        (truncated
-          ? ` Only the first ${bytes.byteLength} bytes were read, because of the ${tokenManager.maxResponseBytes}-byte cap.`
-          : ""),
+      note: image
+        ? "The image itself is attached to this result and can be viewed directly; this describes it."
+        : "Binary response bodies are not returned inline; this is a description of what the endpoint returned." +
+          (truncated ? ` Only the first ${bytes.byteLength} bytes were read, because of the ${readCap}-byte cap.` : "") +
+          (wantsImage && truncated
+            ? ` The image was too large to attach — raise IVEDAAI_MAX_IMAGE_BYTES (currently ${tokenManager.maxImageBytes}) to view it.`
+            : ""),
     };
   } else {
     const text = new TextDecoder().decode(bytes);
@@ -610,5 +655,6 @@ export async function executeOperation(
         }
       : {}),
     ...(timedOut ? { timedOut } : {}),
+    ...(image ? { image } : {}),
   };
 }

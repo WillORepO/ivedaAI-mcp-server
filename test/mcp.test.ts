@@ -49,6 +49,16 @@ beforeAll(async () => {
       res.end(jpeg);
       return;
     }
+    // Same operation, a type no client can display. Keeps the descriptor tests
+    // testing the descriptor: images now take a different path through the
+    // handler, and reusing the JPEG for both would let one feature's change
+    // silently rewrite the other's expectations.
+    if (url.pathname === "/ainvr/api/streaming/2/live.jpg") {
+      const blob = Buffer.alloc(JPEG_BYTES, 0xcd);
+      res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": String(blob.length) });
+      res.end(blob);
+      return;
+    }
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ message: "not found" }));
   });
@@ -300,11 +310,16 @@ describe("MCP server over stdio", () => {
     name: "ivedaai_streaming",
     arguments: { operation: "GET /api/streaming/{cameraId}/{type}.jpg", path: { cameraId: 1, type: "live" } },
   };
+  /** Camera 2 on the mock answers with an undisplayable type, so these stay on the descriptor path. */
+  const blobCall = {
+    name: "ivedaai_streaming",
+    arguments: { operation: "GET /api/streaming/{cameraId}/{type}.jpg", path: { cameraId: 2, type: "live" } },
+  };
 
   it("reports a binary body's real size when it fits under the cap", async () => {
     await withClient({}, async (c) => {
       await c.start();
-      const res = await c.call("tools/call", { name: jpegCall.name, arguments: jpegCall.arguments });
+      const res = await c.call("tools/call", { name: blobCall.name, arguments: blobCall.arguments });
       const p = JSON.parse(res.result.content[0].text);
       expect(p.status).toBe(200);
       expect(p.isBinary).toBe(true);
@@ -319,7 +334,7 @@ describe("MCP server over stdio", () => {
     const cap = 4096;
     await withClient({ IVEDAAI_MAX_RESPONSE_BYTES: String(cap) }, async (c) => {
       await c.start();
-      const res = await c.call("tools/call", { name: jpegCall.name, arguments: jpegCall.arguments });
+      const res = await c.call("tools/call", { name: blobCall.name, arguments: blobCall.arguments });
       const p = JSON.parse(res.result.content[0].text);
       expect(p.truncated).toBe(true);
       // The bug: this used to be `cap`.
@@ -334,12 +349,69 @@ describe("MCP server over stdio", () => {
     // implying the cap is what withheld the bytes would be misleading.
     await withClient({ IVEDAAI_MAX_RESPONSE_BYTES: String(JPEG_BYTES * 10) }, async (c) => {
       await c.start();
-      const res = await c.call("tools/call", { name: jpegCall.name, arguments: jpegCall.arguments });
+      const res = await c.call("tools/call", { name: blobCall.name, arguments: blobCall.arguments });
       const p = JSON.parse(res.result.content[0].text);
       expect(p.truncated).toBeFalsy();
       expect(p.body.byteLength).toBe(JPEG_BYTES);
       expect(p.body.note).toContain("not returned inline");
       expect(p.body.note).not.toContain("exceeded");
+    });
+  }, 60_000);
+
+  /**
+   * Images used to arrive as a size and a MIME type. The bytes were read,
+   * described, and dropped — so a model asked what a camera could see had no
+   * way to look, on an API with 18 image endpoints.
+   */
+  it("hands a JPEG to the client as a viewable image", async () => {
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", { name: jpegCall.name, arguments: jpegCall.arguments });
+      const content = res.result.content;
+      expect(content).toHaveLength(2);
+      expect(content[0].type).toBe("text");
+      expect(content[1].type).toBe("image");
+      expect(content[1].mimeType).toBe("image/jpeg");
+      expect(Buffer.from(content[1].data, "base64").length).toBe(JPEG_BYTES);
+    });
+  }, 60_000);
+
+  it("does not also bury the base64 in the text half of the result", async () => {
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", { name: jpegCall.name, arguments: jpegCall.arguments });
+      const text = res.result.content[0].text as string;
+      const p = JSON.parse(text);
+      // Sending it twice would cost the whole image again as unreadable text.
+      expect(p.image).toBeUndefined();
+      expect(text).not.toContain(res.result.content[1].data.slice(0, 64));
+      expect(p.body.byteLength).toBe(JPEG_BYTES);
+      expect(p.body.note).toContain("attached to this result");
+    });
+  }, 60_000);
+
+  it("refuses to attach an image it only partly read", async () => {
+    // A truncated image is a corrupt file, not a smaller one. Setting the image
+    // budget below the file forces the descriptor-only path.
+    await withClient({ IVEDAAI_MAX_IMAGE_BYTES: "1024", IVEDAAI_MAX_RESPONSE_BYTES: "1024" }, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", { name: jpegCall.name, arguments: jpegCall.arguments });
+      expect(res.result.content).toHaveLength(1);
+      const p = JSON.parse(res.result.content[0].text);
+      expect(p.truncated).toBe(true);
+      expect(p.body.byteLength).toBe(JPEG_BYTES);
+      expect(p.body.note).toContain("IVEDAAI_MAX_IMAGE_BYTES");
+    });
+  }, 60_000);
+
+  it("can be switched off entirely", async () => {
+    await withClient({ IVEDAAI_INLINE_IMAGES: "false" }, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", { name: jpegCall.name, arguments: jpegCall.arguments });
+      expect(res.result.content).toHaveLength(1);
+      const p = JSON.parse(res.result.content[0].text);
+      expect(p.body.byteLength).toBe(JPEG_BYTES);
+      expect(p.body.note).toContain("not returned inline");
     });
   }, 60_000);
 

@@ -14,6 +14,10 @@ export interface IvedaAIConfig {
   timeoutMs: number;
   /** Maximum number of response-body bytes read before truncating. */
   maxResponseBytes: number;
+  /** Whether image responses are handed to the client as viewable images. */
+  inlineImages: boolean;
+  /** Separate, larger budget for image responses. See DEFAULT_MAX_IMAGE_BYTES. */
+  maxImageBytes: number;
   /** Custom undici dispatcher; used to scope TLS-verification bypass to this server's requests only. */
   dispatcher?: Dispatcher;
   /** Whether to redact credential-shaped fields (password, secret, token, ...) from response bodies. */
@@ -53,6 +57,23 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 // Raise it with IVEDAAI_MAX_RESPONSE_BYTES where a specific call needs more and
 // the client can take it.
 const DEFAULT_MAX_RESPONSE_BYTES = 28_672;
+
+// Images are budgeted separately, and far more generously, because the two
+// costs are not the same cost.
+//
+// The response cap above is a proxy for tokens: JSON reaches the model as text,
+// so bytes and tokens rise together. An image does not — a client charges for
+// it by its dimensions, on the order of a thousand-odd tokens for a large one,
+// regardless of whether the JPEG is 40 KB or 400 KB. Holding images to the JSON
+// budget would truncate essentially all of them (a camera snapshot from the
+// deployment is ~45 KB against a 28 KB cap) to save a cost not being paid.
+//
+// 4 MB is chosen against what clients accept rather than what this API sends:
+// it is comfortably above every image this deployment produces while staying
+// under the limits MCP clients impose on a single result. A truncated image is
+// a corrupt file rather than a smaller one, so the failure this avoids is
+// total, not gradual.
+const DEFAULT_MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 function positiveIntEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -95,6 +116,8 @@ export function loadConfig(ctx: SwaggerContext): IvedaAIConfig {
     clientSecret: process.env.IVEDAAI_CLIENT_SECRET,
     timeoutMs: positiveIntEnv("IVEDAAI_TIMEOUT_MS", DEFAULT_TIMEOUT_MS),
     maxResponseBytes: positiveIntEnv("IVEDAAI_MAX_RESPONSE_BYTES", DEFAULT_MAX_RESPONSE_BYTES),
+    inlineImages: process.env.IVEDAAI_INLINE_IMAGES !== "false",
+    maxImageBytes: positiveIntEnv("IVEDAAI_MAX_IMAGE_BYTES", DEFAULT_MAX_IMAGE_BYTES),
     dispatcher,
     redactSecrets: process.env.IVEDAAI_REDACT_SECRETS !== "false",
   };
@@ -139,6 +162,14 @@ export class TokenManager {
 
   get redactSecrets(): boolean {
     return this.config.redactSecrets;
+  }
+
+  get inlineImages(): boolean {
+    return this.config.inlineImages;
+  }
+
+  get maxImageBytes(): number {
+    return this.config.maxImageBytes;
   }
 
   /** Drops the cached tokens so the next getAccessToken() performs a fresh login. */

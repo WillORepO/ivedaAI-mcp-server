@@ -241,8 +241,17 @@ for (const group of ctx.tags) {
               }
             : result;
 
+        // The base64 is stripped from the JSON before it is stringified, and
+        // sent once as viewable image content instead. Leaving it on the
+        // payload would deliver the same picture twice — once the model can
+        // look at, once it can only read as tens of kilobytes of gibberish.
+        const { image, ...textPayload } = payload as typeof payload & { image?: { mimeType: string; base64: string } };
+
         return {
-          content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+          content: [
+            { type: "text", text: JSON.stringify(textPayload, null, 2) },
+            ...(image ? [{ type: "image" as const, data: image.base64, mimeType: image.mimeType }] : []),
+          ],
           isError: result.status >= 400,
         };
       } catch (err) {
