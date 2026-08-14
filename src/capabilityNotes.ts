@@ -28,6 +28,21 @@
  * no filter, for instance — the note says what is on the page and points at the
  * narrower operation, rather than describing behaviour nobody has run.
  *
+ * `POST /api/cameras` is here for a different reason: its documented contract is
+ * wrong, and this server prints the wrong part faithfully. The spec declares
+ * `CameraRequest.required` as `["cameraType"]`, so the tool description says
+ * `required: cameraType` — and a body with just that comes back 400:
+ *
+ *     [engineProfileId (null) must not be null, roiContour (null) must not be null,
+ *      doRecording (null) must not be null, protocol (null) must not be null]
+ *
+ * Measured, along with the fact that nothing is persisted when it fails. The
+ * error is legible, which is the redeeming part, but a caller reaches it only by
+ * trying — and `ivedaai_add_camera` already exists to handle this and is not
+ * mentioned anywhere a caller of the generic tool would look. Worth noting that
+ * `CameraRequest` is the outlier here: of the 35 request schemas that declare
+ * required fields at all, the rest look right.
+ *
  * The activation note also carries the asymmetry between its two directions,
  * because both surprises land on whoever sets several cameras at once:
  *
@@ -52,6 +67,13 @@ export const CAPABILITY_NOTES: Record<string, string> = {
     'camera that is already active answers 200 but cancels its running job and starts a new one, which ' +
     'interrupts analytics; activate=false on a camera that is already idle answers 400 "Camera is not ' +
     'active". Both matter when setting several cameras at once.',
+
+  "POST /api/cameras":
+    'NOTE: the spec marks only "cameraType" required, and that is not enough — the API also rejects a body ' +
+    'missing "engineProfileId", "roiContour", "doRecording" or "protocol", with a 400 naming them and no ' +
+    "record created. Creating the record does not start the camera either; it stays Idle until activated. " +
+    "For onboarding a real camera prefer the ivedaai_add_camera tool, which supplies these and the other " +
+    "defaults, activates the camera, and cleans up after a partial create.",
 
   "GET /api/cameras":
     'NOTE: isActivate filters on whether a camera is actively processing. The camera record carries no ' +
