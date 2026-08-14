@@ -1666,6 +1666,17 @@ describe("capability notes", () => {
     expect(/activated and deactivated/.test(cameraDocs)).toBe(true);
   });
 
+  it("names the licence cap, which looks like a bad request but is not", () => {
+    // Measured: with 9 cameras active, activating a tenth returned 400
+    // errorCode 305 "Number of active cameras has reached the maximum
+    // allowed." A 400 normally means fix the arguments and retry; here the
+    // request is fine, the deployment is full, and retrying cannot work.
+    const note = capabilityNote("POST /api/cameras/{cameraId}/jobs")!;
+    expect(note).toContain("305");
+    expect(note).toContain("maximum allowed");
+    expect(note).toContain("deactivate another camera");
+  });
+
   it("corrects the create-camera required list, which the spec understates", () => {
     // Measured: a body carrying only the spec's required field comes back 400
     // naming four more that "must not be null", and persists nothing. The
