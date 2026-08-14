@@ -55,6 +55,19 @@
  * running job was cancelled and replaced — so "make sure these cameras are on"
  * silently restarts the ones that already were. The job list is the only place
  * the restart is visible.
+ *
+ * There is a third failure, found by running into it rather than by looking for
+ * it. Activation is licence-capped, and at the cap it answers:
+ *
+ *     400 InvalidParameterException, errorCode 305
+ *     "Number of active cameras has reached the maximum allowed. You can
+ *      deactivate another camera to activate new camera."
+ *
+ * That is worth naming because a 400 normally means the request was wrong, and
+ * the useful response to those is to fix the arguments and try again. Here the
+ * request is fine and the deployment is full: retrying cannot succeed, and the
+ * only remedy is to deactivate something else. The message says so, but a caller
+ * has to read it rather than react to the status code.
  */
 
 export const CAPABILITY_NOTES: Record<string, string> = {
@@ -66,7 +79,10 @@ export const CAPABILITY_NOTES: Record<string, string> = {
     'The two directions do not behave alike, so check "status" before calling either: activate=true on a ' +
     'camera that is already active answers 200 but cancels its running job and starts a new one, which ' +
     'interrupts analytics; activate=false on a camera that is already idle answers 400 "Camera is not ' +
-    'active". Both matter when setting several cameras at once.',
+    'active". Both matter when setting several cameras at once. Activation is also capped by licence: once the ' +
+    'deployment is at its limit, activate=true fails with 400 errorCode 305, "Number of active cameras has ' +
+    'reached the maximum allowed" — a full deployment, not a bad request, so the fix is to deactivate another ' +
+    'camera rather than to retry or to change the arguments.',
 
   "POST /api/cameras":
     'NOTE: the spec marks only "cameraType" required, and that is not enough — the API also rejects a body ' +
