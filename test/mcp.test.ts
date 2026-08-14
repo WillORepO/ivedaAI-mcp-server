@@ -19,7 +19,31 @@
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+
+/**
+ * tsx's CLI and this server's entry point, both as absolute paths.
+ *
+ * These tests used to spawn `npx tsx src/index.ts` with `shell: true` on
+ * Windows, and that cost more than it looked like. `npx` re-resolves the binary
+ * on every call: 2.5s per spawn against 0.25s for running the same CLI through
+ * node directly. This file spawns a server per test, so the suite was paying
+ * roughly 45 seconds to do nothing, and on a contended machine one of those
+ * spawns would push past the 30s call timeout and fail with "timed out waiting
+ * for initialize" — measured at one run in ten, on whichever test happened to
+ * draw the slow spawn.
+ *
+ * Resolving through `createRequire` rather than a relative path so this keeps
+ * working under a hoisted or pnpm-style node_modules layout. Dropping `npx`
+ * also drops the `shell: true` it needed on Windows, and with it Node's
+ * DEP0190 warning about passing arguments to a shell.
+ */
+const testRequire = createRequire(import.meta.url);
+const TSX_CLI = join(dirname(testRequire.resolve("tsx/package.json")), "dist", "cli.mjs");
+const SERVER_ENTRY = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 
 let mock: Server;
 let port: number;
@@ -79,7 +103,7 @@ class Client {
   readonly stderr: string[] = [];
 
   constructor(env: Record<string, string>) {
-    this.child = spawn("npx", ["tsx", "src/index.ts"], {
+    this.child = spawn(process.execPath, [TSX_CLI, SERVER_ENTRY], {
       env: {
         ...process.env,
         IVEDAAI_BASE_URL: `http://127.0.0.1:${port}`,
@@ -88,7 +112,6 @@ class Client {
         ...env,
       },
       stdio: ["pipe", "pipe", "pipe"],
-      shell: process.platform === "win32",
     }) as ChildProcessWithoutNullStreams;
 
     this.child.stdout.on("data", (d) => {
