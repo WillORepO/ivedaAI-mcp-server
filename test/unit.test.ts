@@ -14,7 +14,7 @@ import {
   MULTIPART_FILE_FIELD,
   PLAIN_TEXT_BODY_OPS,
 } from "../src/request.js";
-import { buildTriggerBody, interpretTestResult, TRIGGER_TYPES, mergeTriggerIntoRule } from "../src/alertTrigger.js";
+import { buildTriggerBody, interpretTestResult, TRIGGER_TYPES, mergeTriggerIntoRule, describeTriggerTypes, describeTriggerTypesCompact } from "../src/alertTrigger.js";
 import {
   computeRoundTripGaps,
   fieldsAtRisk,
@@ -1701,5 +1701,52 @@ describe("capability notes", () => {
     // on every endpoint — each note is paid for on every connect.
     expect(capabilityNote("GET /api/cameras/{cameraId}")).toBeUndefined();
     expect(Object.keys(CAPABILITY_NOTES).length).toBeLessThan(6);
+  });
+});
+
+/**
+ * The trigger type reference was the largest single line item a client loaded
+ * on connect: 6,549 characters, 72% of its own tool's description, and paid by
+ * every client whether or not it ever routes an alert — while `list_types`
+ * returned the same table on demand for the caller who wanted it.
+ *
+ * These pin the split rather than the size: names and testability stay inline,
+ * prose moves to the lookup, and nothing is lost.
+ */
+describe("compact trigger type reference", () => {
+  const compact = describeTriggerTypesCompact();
+  const full = describeTriggerTypes();
+
+  it("still names every type", () => {
+    for (const name of Object.keys(TRIGGER_TYPES)) {
+      expect(compact, name).toContain(name);
+    }
+  });
+
+  it("keeps the one fact that costs a round trip to learn", () => {
+    // 2 of 17 always answer "unsupported". Discovering that from a failed call
+    // reads like a broken integration rather than a documented limit.
+    for (const [name, info] of Object.entries(TRIGGER_TYPES)) {
+      if (!info.testable) expect(compact, name).toContain(`${name}*`);
+    }
+    expect(compact).toContain("list_types");
+  });
+
+  it("groups by category, which the type enum does not carry", () => {
+    for (const category of ["webhook", "mobile", "vms", "mail"]) {
+      expect(compact, category).toContain(`${category}:`);
+    }
+  });
+
+  it("is dramatically smaller than what it replaced", () => {
+    expect(compact.length).toBeLessThan(full.length / 4);
+  });
+
+  it("loses nothing — the full reference is still there to be fetched", () => {
+    // `list_types` serialises TRIGGER_TYPES itself, so the per-type prose and
+    // the evidence behind the untestable ones survive untouched.
+    for (const [name, info] of Object.entries(TRIGGER_TYPES)) {
+      expect(full, name).toContain(info.description);
+    }
   });
 });
