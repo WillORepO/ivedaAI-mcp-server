@@ -1666,6 +1666,18 @@ describe("capability notes", () => {
     expect(/activated and deactivated/.test(cameraDocs)).toBe(true);
   });
 
+  it("corrects the create-camera required list, which the spec understates", () => {
+    // Measured: a body carrying only the spec's required field comes back 400
+    // naming four more that "must not be null", and persists nothing. The
+    // generic tool printed "required: cameraType" and never mentioned that
+    // ivedaai_add_camera exists to handle exactly this.
+    const note = capabilityNote("POST /api/cameras")!;
+    for (const f of ["engineProfileId", "roiContour", "doRecording", "protocol"]) {
+      expect(note, f).toContain(f);
+    }
+    expect(note).toContain("ivedaai_add_camera");
+  });
+
   it("tells a reader of the camera list how to see the current state", () => {
     // The record has no activation field, so the filter and `status` are the
     // only ways to know — and neither is obvious from the schema.
