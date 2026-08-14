@@ -10,7 +10,7 @@ import {
   TRIGGER_TYPES,
   buildTriggerBody,
   interpretTestResult,
-  describeTriggerTypes,
+  describeTriggerTypesCompact,
   mergeTriggerIntoRule,
 } from "./alertTrigger.js";
 import { lossyUpdateError } from "./partialUpdate.js";
@@ -353,8 +353,8 @@ if (ACCESS_POLICY.readOnly) {
         "ivedaai_get_schema(\"AlertTriggerNvr\") for the full field list.\n" +
         "  mail/immix: { emails: [{mailIds?, subject?, content?}], smtpServer, port }\n" +
         "  mobile: { enableCriticalAlertNotice? } (all fields optional)\n\n" +
-        "Type reference:\n" +
-        describeTriggerTypes(),
+        "Types (grouped; call list_types for what each one is):\n" +
+        describeTriggerTypesCompact(),
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       inputSchema: {
         action: z.enum(["list_types", "test", "apply"]).describe("Which action to perform."),

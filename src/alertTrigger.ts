@@ -171,6 +171,45 @@ export function buildTriggerBody(type: string, config: unknown): { trigger: Reco
 }
 
 /** Renders a compact per-type reference for the tool description. */
+/**
+ * The type reference as a *tool description* pays for itself 66 times over.
+ *
+ * `describeTriggerTypes` renders every type with its prose description: 6,549
+ * characters, 72% of this tool's description and 8.7% of everything a client
+ * loads on connect — the single largest line item in the budget. And it is paid
+ * twice, because `action: "list_types"` returns the same table as JSON for the
+ * caller who actually wants it.
+ *
+ * This is the trade `describeBodyForTool` already makes for body schemas: keep
+ * inline what a caller cannot postpone, and make the rest a lookup. Here that
+ * split is
+ *
+ *   - **names, grouped by category** — you cannot choose a type you cannot name,
+ *     and the grouping is the thing the `type` enum in the input schema does not
+ *     already carry;
+ *   - **which types `test` actually works on** — 2 of the 17 always answer
+ *     "unsupported", and learning that from a failed call costs a round trip
+ *     and reads like a broken integration rather than a documented limit;
+ *   - everything else — what each platform is, and the evidence behind the
+ *     untestable ones — moves to `list_types`, unchanged.
+ *
+ * Nothing is lost: `TRIGGER_TYPES` is untouched and `list_types` still returns
+ * all of it.
+ */
+export function describeTriggerTypesCompact(): string {
+  const lines: string[] = [];
+  for (const category of ["webhook", "mobile", "vms", "mail"] as TriggerCategory[]) {
+    const names = Object.entries(TRIGGER_TYPES).filter(([, info]) => info.category === category);
+    if (names.length === 0) continue;
+    lines.push(`  ${category}: ${names.map(([n, i]) => (i.testable ? n : `${n}*`)).join(", ")}`);
+  }
+  lines.push(
+    "  * = not live-testable; 'test' returns \"unsupported\" for these. Call action:\"list_types\" for what each " +
+      "type is and the evidence behind that."
+  );
+  return lines.join("\n");
+}
+
 export function describeTriggerTypes(): string {
   const lines: string[] = [];
   for (const category of ["webhook", "mobile", "vms", "mail"] as TriggerCategory[]) {

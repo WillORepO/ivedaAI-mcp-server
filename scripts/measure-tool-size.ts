@@ -70,6 +70,17 @@ console.log(`\nTool-description budget — what a client loads on connect\n`);
 console.log(`  tools:            ${perTool.length}`);
 console.log(`  operations:       ${totalOps}`);
 console.log(`  total:            ${fmt(total)} chars  (~${fmt(approxTokens(total))} tokens)`);
+// Say what this number leaves out, because it was quietly the wrong number to
+// reason with. This script builds descriptions from the spec, so it sees the
+// generated tools and none of the three hand-written ones — and one of those,
+// `ivedaai_alert_integration`, was for a long time the single largest tool of
+// any kind. Trimming it by 6,207 characters moved this total by zero, which is
+// how the cost went unnoticed in the first place.
+console.log(
+  `                    (generated tools only — ivedaai_get_schema, ivedaai_add_camera and\n` +
+    `                     ivedaai_alert_integration are hand-written and not counted here.\n` +
+    `                     For the whole connect payload, read tools/list off a running server.)`
+);
 console.log(`  mean per tool:    ${fmt(Math.round(total / perTool.length))} chars`);
 console.log(`  median per tool:  ${fmt(median)} chars`);
 console.log(`\n  live-testing cautions: ${fmt(warningChars)} chars (~${fmt(approxTokens(warningChars))} tokens), ` +
