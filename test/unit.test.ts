@@ -2012,13 +2012,60 @@ describe("pagination", () => {
     );
   });
 
-  it("derives a usable continuation request for every paginated operation in the bundled spec", () => {
+  /**
+   * Paginating in the response and being pageable by a caller are two different
+   * things, and one operation now separates them.
+   *
+   * `POST /api/scene-objects/search` answers with a Spring page, but the only
+   * paging names it declares are `pageNumber`/`pageSize`, which a deployment
+   * ignores. They were removed rather than published, so nothing remains to
+   * build a continuation from. The GET of the same path was renamed onto the
+   * working `page`/`size` because that was measured; the POST needs a
+   * `descriptors` list nobody has supplied, so it was left unclaimed.
+   *
+   * Listing it by name rather than relaxing the assertion: if it ever gains a
+   * working control the exception fails and has to be deleted deliberately.
+   */
+  const NO_USABLE_PAGING = new Set(["POST /api/scene-objects/search"]);
+
+  it("derives a usable continuation request for every paginated operation that has one", () => {
     const paginated = paginatedOperations(ctx.spec);
     const operations = ctx.tags.flatMap((group) => group.operations).filter((operation) => paginated.has(operation.id));
 
     expect(operations).toHaveLength(36);
     for (const operation of operations) {
-      expect(paginationRequest(ctx.spec, operation), operation.id).toBeDefined();
+      const request = paginationRequest(ctx.spec, operation);
+      if (NO_USABLE_PAGING.has(operation.id)) {
+        expect(request, `${operation.id} is the documented exception`).toBeUndefined();
+      } else {
+        expect(request, operation.id).toBeDefined();
+      }
+    }
+  });
+
+  it("offers no paging parameter a deployment ignores", () => {
+    // Measured 2026-08-17: of springdoc's ten flattened Pageable parameters, a
+    // 10.0 deployment binds page, size and sort and ignores the other seven.
+    // Forwarding an ignored one returns the default page — a wrong answer that
+    // looks like a right one — so they are dropped and the call is refused
+    // instead.
+    const inert = ["offset", "pageNumber", "pageSize", "paged", "unpaged", "sort.sorted", "sort.unsorted"];
+    for (const operation of ctx.tags.flatMap((group) => group.operations)) {
+      const names = operation.parameters.filter((p) => p.in === "query").map((p) => p.name);
+      for (const name of inert) {
+        expect(names, `${operation.id} still offers ${name}`).not.toContain(name);
+      }
+    }
+  });
+
+  it("keeps the two operations whose working names were undeclared", () => {
+    // Both declare only pageNumber/pageSize, both ignore them, and both honour
+    // an undeclared page/size. Renamed, so they are pageable at all.
+    for (const id of ["GET /api/lineSets", "GET /api/scene-objects/search"]) {
+      const operation = ctx.tags.flatMap((g) => g.operations).find((o) => o.id === id)!;
+      const names = operation.parameters.filter((p) => p.in === "query").map((p) => p.name);
+      expect(names, id).toContain("page");
+      expect(names, id).toContain("size");
     }
   });
 });
