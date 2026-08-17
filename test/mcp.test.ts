@@ -61,7 +61,26 @@ beforeAll(async () => {
     }
     if (url.pathname === "/ainvr/api/cameras" && req.method === "GET") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ content: [{ cameraId: 1, name: "Front Door" }], totalElements: 1 }));
+      // A page out of a larger collection when asked for one, so the pagination
+      // summary has something real to summarise. `size=1` is what the existing
+      // dispatch test sends, and it keeps its single "Front Door" either way.
+      const paged = url.searchParams.get("page") !== null || url.searchParams.get("size") === "1";
+      res.end(
+        JSON.stringify(
+          paged
+            ? {
+                content: [{ cameraId: 1, name: "Front Door" }],
+                numberOfElements: 1,
+                totalElements: 400,
+                totalPages: 400,
+                number: Number(url.searchParams.get("page") ?? 0),
+                size: 1,
+                first: true,
+                last: false,
+              }
+            : { content: [{ cameraId: 1, name: "Front Door" }], totalElements: 1 }
+        )
+      );
       return;
     }
     // A binary endpoint, big enough to exceed a deliberately small cap. The
@@ -94,6 +113,37 @@ afterAll(async () => {
   await new Promise<void>((resolve) => mock.close(() => resolve()));
 });
 
+/**
+ * The developer's environment with every `IVEDAAI_*` variable removed.
+ *
+ * These tests spawn a server per case and used to hand it `...process.env`, so
+ * each one ran against whatever the developer happened to have exported. That
+ * is fine until someone follows the README's own advice and sets
+ * `IVEDAAI_READ_ONLY=true` while working against a real deployment: six of
+ * these then fail, because the cases that assert on the *default* policy never
+ * said they wanted it and silently inherited read-only instead.
+ *
+ * Those failures reproduce nowhere else. CI runners have no such variable, so
+ * the suite is green there and red on one laptop, which is the worst shape a
+ * test failure can take.
+ *
+ * Stripping the whole prefix rather than a list of known names, so a variable
+ * added to the server later is neutralised here without anyone remembering to
+ * come back. Everything else — PATH, the vitest plumbing, the temp dirs — is
+ * passed through untouched, because the child is a real node process and needs
+ * it. What each test wants is then stated below, in the test.
+ *
+ * Read at spawn time rather than snapshotted at module load, so
+ * "ignores the developer's own IVEDAAI_ settings" tests the stripping. A
+ * snapshot would pass that test by accident, simply for predating the variable
+ * the test sets.
+ */
+function ambientEnv(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith("IVEDAAI_"))
+  ) as Record<string, string>;
+}
+
 /** A live MCP server on stdio, with a `call` that resolves JSON-RPC by id. */
 class Client {
   private child: ChildProcessWithoutNullStreams;
@@ -105,7 +155,7 @@ class Client {
   constructor(env: Record<string, string>) {
     this.child = spawn(process.execPath, [TSX_CLI, SERVER_ENTRY], {
       env: {
-        ...process.env,
+        ...ambientEnv(),
         IVEDAAI_BASE_URL: `http://127.0.0.1:${port}`,
         IVEDAAI_USERNAME: "u",
         IVEDAAI_PASSWORD: "p",
@@ -205,6 +255,32 @@ describe("MCP server over stdio", () => {
       expect(result.instructions).toContain("ivedaai_get_schema");
       expect(result.serverInfo?.name).toBe("ivedaai-mcp-server");
     });
+  }, 60_000);
+
+  /**
+   * The isolation itself, asserted rather than assumed.
+   *
+   * Every case below that does not name a policy is relying on this: that the
+   * server it spawns is configured by the test and not by the shell the suite
+   * was launched from. Pinning it here means a regression shows up as one
+   * honest failure with a name that explains it, instead of as six unrelated
+   * ones on whichever machine has the variable set.
+   */
+  it("ignores the developer's own IVEDAAI_ settings", async () => {
+    const previous = process.env.IVEDAAI_READ_ONLY;
+    process.env.IVEDAAI_READ_ONLY = "true";
+    try {
+      await withClient({}, async (c) => {
+        await c.start();
+        const tools = (await c.call("tools/list")).result.tools;
+        // A read-only server registers neither of these and offers no writes.
+        expect(tools.map((t: any) => t.name)).toContain("ivedaai_add_camera");
+        expect(operationsOf(tools, "ivedaai_camera")).toContain("POST /api/cameras");
+      });
+    } finally {
+      if (previous === undefined) delete process.env.IVEDAAI_READ_ONLY;
+      else process.env.IVEDAAI_READ_ONLY = previous;
+    }
   }, 60_000);
 
   it("withholds collection-emptying deletes by default, and keeps the single-record one", async () => {
@@ -449,6 +525,206 @@ describe("MCP server over stdio", () => {
       const payload = JSON.parse(res.result.content[0].text);
       expect(payload.status).toBe(200);
       expect(payload.body.content[0].name).toBe("Front Door");
+    });
+  }, 60_000);
+
+  /**
+   * The declared result shape, and the thing that makes declaring it risky.
+   *
+   * `outputSchema` is not documentation the SDK ignores. It validates every
+   * non-error result against it and answers a mismatch with a JSON-RPC error
+   * instead of the result — so a schema that is wrong about a real response does
+   * not degrade the call, it destroys it. Each of these therefore asserts on
+   * `res.result` rather than only on its contents: if validation had failed
+   * there would be no `result` at all, only `res.error`.
+   */
+  /**
+   * The annotation drifted once and the drift was invisible: the generated
+   * tools said `openWorldHint: false` while `ivedaai_alert_integration` and
+   * `ivedaai_add_camera` said `true`, with nothing recording a reason for
+   * either. It was not a distinction — those two wrap operations the generated
+   * tools also offer (`POST /api/alertTriggers` on `ivedaai_alert_trigger`,
+   * `POST /api/cameras` on `ivedaai_camera`), so the same call answered
+   * differently depending on which tool a client reached it through.
+   */
+  it("agrees with itself about which tools reach an open world", async () => {
+    await withClient({}, async (c) => {
+      await c.start();
+      const tools = (await c.call("tools/list")).result.tools;
+      for (const tool of tools) {
+        // ivedaai_get_schema answers out of the bundled spec and opens no
+        // connection, so it is the sole closed-world tool.
+        const expected = tool.name !== "ivedaai_get_schema";
+        expect(tool.annotations?.openWorldHint, `${tool.name}`).toBe(expected);
+      }
+    });
+  }, 60_000);
+
+  /**
+   * `idempotentHint` on a tool that dispatches to many operations is only true
+   * if it holds for all of them, so this checks the claim against the operation
+   * enum the same tool advertises rather than against a hand-kept list.
+   */
+  it("claims idempotence only where every operation it offers is idempotent", async () => {
+    const idempotentMethods = new Set(["GET", "HEAD", "OPTIONS", "PUT", "DELETE"]);
+    await withClient({}, async (c) => {
+      await c.start();
+      const tools = (await c.call("tools/list")).result.tools;
+      let claimed = 0;
+      for (const tool of tools) {
+        expect(tool.annotations?.idempotentHint, `${tool.name} declares none`).toBeTypeOf("boolean");
+        const ops = operationsOf(tools, tool.name);
+        // The hand-written tools have no operation enum to check against.
+        if (ops.length === 0) continue;
+        const every = ops.every((op: string) => idempotentMethods.has(op.split(" ")[0]));
+        expect(tool.annotations.idempotentHint, `${tool.name} offers ${ops.join(", ")}`).toBe(every);
+        if (every) claimed++;
+      }
+      // A guard against the rule silently collapsing to "false everywhere",
+      // which would pass the assertion above and say nothing.
+      expect(claimed).toBeGreaterThan(10);
+    });
+  }, 60_000);
+
+  /**
+   * The failure this exists for: a model handed 1 record and `totalElements:
+   * 400` answering from the 1. Spring says so in a response that also carries
+   * `number`, `numberOfElements`, `totalPages`, `first`, `last`, `empty` and a
+   * nested `pageable` restating most of them, and reading that correctly means
+   * knowing which of the two counts is the collection's.
+   */
+  it("summarises a page into whether there is more and what to send for it", async () => {
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", {
+        name: "ivedaai_camera",
+        arguments: { operation: "GET /api/cameras", query: { size: 1 } },
+      });
+      const p = res.result.structuredContent;
+      expect(p.pagination).toEqual({
+        total: 400,
+        count: 1,
+        page: 0,
+        size: 1,
+        hasMore: true,
+        nextPage: 1,
+        note: expect.stringContaining('{"page": 1}'),
+      });
+      // The deployment's own response is left exactly as it arrived.
+      expect(p.body.totalElements).toBe(400);
+      expect(p.body.content).toHaveLength(1);
+    });
+  }, 60_000);
+
+  it("says nothing about pagination on an operation that does not paginate", async () => {
+    await withClient({}, async (c) => {
+      await c.start();
+      // GET /api/streaming/… answers with an image, not a page.
+      const res = await c.call("tools/call", { name: jpegCall.name, arguments: jpegCall.arguments });
+      expect(res.result.structuredContent.pagination).toBeUndefined();
+    });
+  }, 60_000);
+
+  it("tells the client about the pagination block once, at initialize", async () => {
+    await withClient({}, async (c) => {
+      // Paid once here rather than on all 63 tool descriptions, which is why the
+      // actionable half is repeated in the payload's own `note` — that one no
+      // client can drop.
+      const result = await c.start();
+      expect(result.instructions).toContain("hasMore");
+      expect(result.instructions).toContain("nextPage");
+      expect(result.instructions).toContain("pagination.note");
+      expect(result.instructions).not.toContain('send query {"page"');
+    });
+  }, 60_000);
+
+  it("declares an output schema on every tool", async () => {
+    await withClient({}, async (c) => {
+      await c.start();
+      const tools = (await c.call("tools/list")).result.tools;
+      expect(tools.length).toBeGreaterThan(60);
+      for (const tool of tools) {
+        expect(tool.outputSchema?.type, `${tool.name} declares no output schema`).toBe("object");
+        if (operationsOf(tools, tool.name).length > 0) {
+          expect(tool.outputSchema?.required, `${tool.name} does not require its always-present body`).toContain("body");
+        }
+      }
+      const addCamera = tools.find((tool: any) => tool.name === "ivedaai_add_camera");
+      expect(addCamera?.outputSchema?.required).toEqual(expect.arrayContaining(["ainvrId", "results"]));
+    });
+  }, 60_000);
+
+  it("returns structured content saying the same thing as the text half", async () => {
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", {
+        name: "ivedaai_camera",
+        arguments: { operation: "GET /api/cameras", query: { size: 1 } },
+      });
+      expect(res.error).toBeUndefined();
+      expect(res.result.structuredContent).toBeDefined();
+      // The two halves are serialised from one object, so a client reading
+      // either cannot be told something the other does not say.
+      expect(res.result.structuredContent).toEqual(JSON.parse(res.result.content[0].text));
+      expect(res.result.structuredContent.status).toBe(200);
+    });
+  }, 60_000);
+
+  it("keeps the image out of the structured half, as it does out of the text", async () => {
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", { name: jpegCall.name, arguments: jpegCall.arguments });
+      expect(res.error).toBeUndefined();
+      // Base64 belongs in the image content block only. Putting it here would
+      // send the same picture twice and blow the declared shape's budget for
+      // no gain — the same reason it is stripped from the text.
+      expect(res.result.structuredContent).not.toHaveProperty("image");
+      expect(res.result.structuredContent).toEqual(JSON.parse(res.result.content[0].text));
+    });
+  }, 60_000);
+
+  /**
+   * `ivedaai_get_schema` used to answer with a bare JSON array of names, and
+   * with the definition itself for a lookup. Neither can be `structuredContent`,
+   * which MCP requires to be an object, so both are wrapped now. Pinned because
+   * the wrapping is a wire-format change: a caller written against the old bare
+   * array would break on it.
+   */
+  it("wraps the definition listing under a key", async () => {
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", { name: "ivedaai_get_schema", arguments: {} });
+      expect(res.error).toBeUndefined();
+      expect(Array.isArray(res.result.structuredContent.names)).toBe(true);
+      expect(res.result.structuredContent.names).toContain("CameraRequest");
+      expect(res.result.structuredContent).toEqual(JSON.parse(res.result.content[0].text));
+    });
+  }, 60_000);
+
+  it("wraps a definition lookup the same way", async () => {
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", {
+        name: "ivedaai_get_schema",
+        arguments: { name: "CameraRequest" },
+      });
+      expect(res.error).toBeUndefined();
+      expect(res.result.structuredContent.name).toBe("CameraRequest");
+      expect(res.result.structuredContent.schema).toBeTruthy();
+      expect(res.result.structuredContent).toEqual(JSON.parse(res.result.content[0].text));
+    });
+  }, 60_000);
+
+  it("answers list_types under a key, so one declared shape covers all three actions", async () => {
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", {
+        name: "ivedaai_alert_integration",
+        arguments: { action: "list_types" },
+      });
+      expect(res.error).toBeUndefined();
+      expect(res.result.structuredContent.types.request.category).toBe("webhook");
+      expect(res.result.structuredContent).toEqual(JSON.parse(res.result.content[0].text));
     });
   }, 60_000);
 

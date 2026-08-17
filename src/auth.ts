@@ -1,6 +1,7 @@
 import { fetch, Agent, type Dispatcher } from "undici";
 import { connectionFailureMessage } from "./netError.js";
 import type { SwaggerContext } from "./swagger.js";
+import { uploadPolicyFromEnv, type UploadPolicy } from "./uploadPath.js";
 
 export interface IvedaAIConfig {
   origin: string;
@@ -22,6 +23,8 @@ export interface IvedaAIConfig {
   dispatcher?: Dispatcher;
   /** Whether to redact credential-shaped fields (password, secret, token, ...) from response bodies. */
   redactSecrets: boolean;
+  /** What this server may read off local disk and upload. See src/uploadPath.ts. */
+  uploadPolicy: UploadPolicy;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -120,6 +123,9 @@ export function loadConfig(ctx: SwaggerContext): IvedaAIConfig {
     maxImageBytes: positiveIntEnv("IVEDAAI_MAX_IMAGE_BYTES", DEFAULT_MAX_IMAGE_BYTES),
     dispatcher,
     redactSecrets: process.env.IVEDAAI_REDACT_SECRETS !== "false",
+    // Read at startup so a misconfigured IVEDAAI_UPLOAD_ROOT fails here, with
+    // the other configuration errors, rather than on the first upload.
+    uploadPolicy: uploadPolicyFromEnv(),
   };
 }
 
@@ -170,6 +176,10 @@ export class TokenManager {
 
   get maxImageBytes(): number {
     return this.config.maxImageBytes;
+  }
+
+  get uploadPolicy(): UploadPolicy {
+    return this.config.uploadPolicy;
   }
 
   /** Drops the cached tokens so the next getAccessToken() performs a fresh login. */

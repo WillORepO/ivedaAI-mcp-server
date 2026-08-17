@@ -6,9 +6,9 @@ are surprising. None of this is needed to *use* the server — start with the
 
 ## Design
 
-Wrapping all 315 endpoints as 315 separate MCP tools would overwhelm most MCP clients. Instead,
+Wrapping all 316 operations as 316 separate MCP tools would overwhelm most MCP clients. Instead,
 this server registers **one tool per API resource/tag** (e.g. `ivedaai_camera`, `ivedaai_alert`,
-`ivedaai_face_target`, 62 tools total). Each tool takes:
+`ivedaai_face_target`, 63 generated tools total). Each tool takes:
 
 - `operation` — an enum of `"METHOD /path"` strings for every endpoint in that resource, listed in
   the tool's description along with its parameters.
@@ -29,24 +29,30 @@ The tool set and all parameter/schema info are generated at startup directly fro
 npm run measure   # no deployment or credentials needed
 ```
 
-An MCP client loads every tool description up front, so their combined size comes out of the context
+An MCP client loads every tool definition up front, so their combined size comes out of the context
 budget whether or not a tool is ever called. The one-tool-per-resource decision above was made to
 keep the tool *count* manageable; the token cost was never measured. Measured, it started at
-~82,000 characters on the 9.3 spec. On 10.0, with the default access policy, it is
-**~63,800 characters, roughly 16,000 tokens** across 63 tools — or **~29,500 characters, ~7,400
-tokens** across 54 tools when `IVEDAAI_READ_ONLY=true`.
+~82,000 characters on the 9.3 spec. On 10.0, with the default access policy, the descriptions are
+**66,570 characters, ~16,600 tokens** across 63 tools — or **29,769 characters, ~7,400 tokens**
+across 54 tools when `IVEDAAI_READ_ONLY=true`.
 
-What that means depends entirely on the client:
+Descriptions are no longer the whole bill. Each tool also declares an `outputSchema`, and because
+every generated tool answers with the same envelope, the same 601-character schema is transmitted 63
+times: **37,863 characters, ~9,500 tokens**. Adding the two together is what a client actually pays
+for the generated tools.
 
 | Context window | Default | Read-only | Before the trims |
 | --- | --- | --- | --- |
-| 32,000 | **50%** | **23%** | 64% |
-| 128,000 | 12% | 6% | 16% |
-| 200,000 | 8% | 4% | 10% |
-| 1,000,000 | 2% | 1% | 2% |
+| 32,000 | **81%** | **48%** | 64% |
+| 128,000 | 20% | 12% | 16% |
+| 200,000 | 13% | 8% | 10% |
+| 1,000,000 | 3% | 2% | 2% |
 
-Read-only is the cheapest way to shrink this: withholding every write leaves 54 tools and 129
-operations instead of 63 and 293, which more than halves the connect cost.
+Read-only remains the cheapest way to shrink this — 54 tools and 129 operations instead of 63 and
+295 — but it no longer more than halves the bill. Withholding the writes takes 36,000 characters off
+the descriptions and only 5,300 off the schemas, because a read-only server still declares the same
+envelope on every tool it does offer. In read-only the schema is now the *larger* of the two: 29,769
+characters of description against 32,454 of schema.
 
 Two things came out, neither of which a caller loses access to. Request bodies name their schema
 definition instead of listing every field — the full list is a `ivedaai_get_schema` call away, and
@@ -57,17 +63,21 @@ every header, so nothing breaks on a client that ignores `instructions`. The eng
 the full attribution and the reasoning for where this stopped. The figures above rose again with the
 10.0 upgrade, which added operations and the measured date-format patterns.
 
-At 200k this was always a reasonable price for covering 315 operations. At 32k the server was close
+At 200k this was always a reasonable price for covering 316 operations. At 32k the server was close
 to unusable before the conversation started; it is now merely expensive.
 
-Of the total, the live-testing cautions this project added account for **7%** (~1,400 tokens across
-14 of 315 operations) — a minority of the budget, but not free.
+Of the description total, the capability and live-testing cautions this project added account for
+**13.1%** (~2,200 tokens across 21 of the 295 default-exposed operations) — a minority of the
+budget, but not free.
 
 The obvious lever is moving detail out of the descriptions and leaning on `ivedaai_get_schema`,
 which exists for exactly that. That trades startup context for extra round-trips mid-conversation,
 and which way that trade goes depends on the client and the workload, so nothing has been trimmed on
-a guess. `npm run measure` exists so the number can be re-checked rather than trusted — run it
-before and after anything that touches tool descriptions.
+a guess. The other lever is the output schema, where the multiplier is unforgiving: every character
+is paid 63 times, so the nested detail of `omittedFields` alone was worth 38,000 characters and was
+dropped for that reason (see `src/outputSchema.ts`). `npm run measure` exists so both numbers can be
+re-checked rather than trusted — run it before and after anything that touches tool descriptions or
+the declared result shape.
 
 ### ivedaai_alert_integration — a guided, hand-built exception
 
@@ -91,7 +101,7 @@ default timeout, translates the three distinct error shapes into a plain-languag
 to a real alert rule via `PATCH /api/alertRules/{alertRuleId}` — reading the rule first and
 re-sending what it can, for reasons covered in
 [Alert rules: the suspicion, settled](#alert-rules-the-suspicion-settled).
-See [docs/TOOLS.md](docs/TOOLS.md#ivedaai_alert_integration) for the full type reference.
+See [TOOLS.md](TOOLS.md#ivedaai_alert_integration) for the full type reference.
 
 ### ivedaai_add_camera — another guided exception, same reasons
 
@@ -119,7 +129,7 @@ means the stream is connected. In testing, a confirmed-correct RTSP URL still sa
 `Running`/0% progress with no error at all for 90+ seconds — most likely a network-reachability
 issue between the IvedaAI server and the camera, not something this tool (or the API) can detect
 or fix. The tool's output always points to checking back via `ivedaai_job` or `ivedaai_camera` for
-real confirmation. See [docs/TOOLS.md](docs/TOOLS.md#ivedaai_add_camera) for details.
+real confirmation. See [TOOLS.md](TOOLS.md#ivedaai_add_camera) for details.
 
 ## Response format
 
@@ -137,6 +147,58 @@ Every tool call returns a JSON envelope:
 `truncated: true` when the body exceeded `IVEDAAI_MAX_RESPONSE_BYTES`, and `timedOut: true` when
 reading the body hit the timeout — typical for continuous streams (see below), in which case
 `body` contains whatever was read before the cutoff.
+
+That envelope is returned twice: serialised into the result's text block, and as
+`structuredContent` for clients that would rather not parse JSON out of prose. Both are serialised
+from one object, so they cannot disagree. Every tool declares the shape as an `outputSchema`, which
+the SDK enforces — a result that does not match the declaration is answered as a protocol error
+rather than delivered, so `src/outputSchema.ts` is written to describe what the code actually emits
+and leaves genuinely variable fields (`body` above all) untyped rather than guessing.
+
+The image is the one thing that appears in neither: it is stripped from the envelope and sent as an
+image content block, because base64 in the JSON would deliver the same picture a second time as
+unreadable text.
+
+Two tools wrap their answers to make this possible. `ivedaai_get_schema` returns `{names}` for a
+listing and `{name, schema}` for a lookup, and `ivedaai_alert_integration` returns its type
+reference under `{types}` — MCP requires `structuredContent` to be an object, and all three used to
+answer with a bare array or a bare definition.
+
+### Pagination
+
+36 operations answer with a Spring page rather than a collection — `content` alongside
+`totalElements`, `totalPages`, `number`, `numberOfElements`, `size`, `first`, `last`, `empty`, and a
+nested `pageable` restating most of it. Everything a caller needs is in there, and none of it
+answers the two questions they actually have: is there more, and what do I send to get it. Reading
+it correctly means knowing that `number` is a zero-based page index rather than a count, that
+`numberOfElements` is this page's length while `totalElements` is the collection's, and that `last`
+is the field to trust. The failure mode is quiet and plausible — twenty records arrive next to
+`totalElements: 400`, and the answer is given from the twenty.
+
+So a `pagination` object is added beside `body`:
+
+```json
+{ "total": 400, "count": 20, "page": 0, "size": 20, "hasMore": true, "nextPage": 1,
+  "note": "This is a partial result: 20 of 400 records. Send query {\"page\": 1} …" }
+```
+
+`body` is left exactly as the deployment sent it. Which operations paginate is derived from the
+spec at startup — from the response *shape*, `content` next to `totalElements`, rather than from
+the `PageOf*` naming convention that springdoc happens to follow today — and the summary is only
+produced if the response itself agrees. A 4xx body, a truncated fragment or an endpoint answering
+differently from its own spec yields no summary rather than a confident wrong one.
+
+`hasMore` prefers the server's `last`, falls back to the page index against `totalPages`, then to
+how far the records seen reach into `totalElements`, and answers `false` when it cannot tell:
+inventing a page that does not exist sends a caller into a retry loop, while missing one leaves
+them where they already were.
+
+**What this deliberately does not do is choose a page size.** No default `size` is injected into
+requests. What the deployment's own default is has not been established by testing, and a guess
+either way is wrong for somebody — too large breaches the response cap and wastes the whole
+round-trip, too small doubles the number of calls. The `pagination` block reports the `size` that
+was actually applied, so a caller learns it from the first response instead of from an assumption
+baked in here.
 
 ## The lossy-update guard
 
@@ -169,7 +231,7 @@ Passing the field as an explicit `null` is allowed: clearing it is then a stated
 than a side effect. The same caution is emitted into the generated tool description, so a caller
 that reads the docs first never hits the refusal.
 
-The guarded operations live in [`src/partialUpdate.ts`](src/partialUpdate.ts). **Only add an entry
+The guarded operations live in [`src/partialUpdate.ts`](../src/partialUpdate.ts). **Only add an entry
 that live testing has confirmed** — each one blocks calls that would otherwise succeed.
 
 `IVEDAAI_ALLOW_LOSSY_UPDATE=true` disables the guard. It exists for the maintainers' CRUD probe, which omits
@@ -182,7 +244,7 @@ should set it.
 Whether an update loses the fields you didn't send is **per-endpoint on this API, and cannot be
 inferred from the verb**. `PATCH /api/user-groups` nulls them; `PATCH /api/alertRules` merges; `PUT
 /api/rois` merges where every other `PUT` here replaces or refuses. So it is recorded per operation
-in [`src/partialUpdate.ts`](src/partialUpdate.ts), each entry with the evidence that established it,
+in [`src/partialUpdate.ts`](../src/partialUpdate.ts), each entry with the evidence that established it,
 and the round-trip warnings are phrased from it.
 
 | Operation | Behaviour | What happens to omitted fields |
@@ -218,14 +280,10 @@ refusal of a partial body *is* the answer for `PUT`.
 
 ### Establishing it
 
-```bash
-IVEDAAI_BASE_URL=… IVEDAAI_USERNAME=… IVEDAAI_PASSWORD=… \
-  IVEDAAI_ALLOW_WRITE_PROBE=true npm run probe:semantics
-```
-
-[`scripts/probe-update-semantics.ts`](scripts/probe-update-semantics.ts) creates its own records,
-sets observable fields, sends a body carrying only what the schema marks required, reads back, and
-deletes everything in reverse dependency order — cleanup runs even when a step throws.
+These findings came from controlled maintainer probes against disposable records. The write-capable
+probe suite and its deployment evidence remain in the private engineering repository rather than
+this public product repository. Each run set observable fields, sent a body carrying only what the
+schema marks required, read the result back, and deleted its records in reverse dependency order.
 
 **Why cameras can be probed at all.** The CRUD probe deliberately never touches them, on the
 grounds that creating a camera allocates a processing resource. That is true only of *activation*
@@ -250,9 +308,9 @@ Accounts were the one resource held back longest, on the reasoning that
 That reasoning was half wrong: `password` is enforced on `PUT` only. `PATCH` accepts a body without
 one.
 
-[`scripts/probe-account-update.ts`](scripts/probe-account-update.ts) exploits that, and is ordered so
-it can never take a step it cannot undo. A partial update might clear fields, and putting them back
-needs a full-object update — which is the very call that might be blocked. So it proves the repair
+The maintainer account probe exploits that asymmetry and is ordered so it can never take a step it
+cannot undo. A partial update might clear fields, and putting them back needs a full-object update —
+which is the very call that might be blocked. So it proves the repair
 path *first*: send the complete object, with every value read straight back off the record, so success
 changes nothing. Only once that is accepted does it try a partial body. Then it restores from the
 snapshot and verifies the account matches its original state field by field.
@@ -303,7 +361,7 @@ records off a live deployment:
 So a field missing from a response by name is usually still readable, just somewhere else. The
 practical problem is that nothing documents where.
 
-[`src/roundTrip.ts`](src/roundTrip.ts) derives the candidates from the spec at startup, then resolves
+[`src/roundTrip.ts`](../src/roundTrip.ts) derives the candidates from the spec at startup, then resolves
 them against a hand-maintained table of live-verified locations. What comes out is two distinct
 categories, and only the second is alarming:
 
@@ -328,11 +386,8 @@ categories, and only the second is alarming:
 
 ### Verifying it
 
-```bash
-IVEDAAI_BASE_URL=http://your-server IVEDAAI_USERNAME=… IVEDAAI_PASSWORD=… npm run validate:roundtrip
-```
-
-Read-only — it issues `GET`s and nothing else. For each flagged operation it reads a real record and
+The mapping table was checked by a read-only maintainer validator kept with the private deployment
+test suite. It issues `GET`s and nothing else. For each flagged operation it reads a real record and
 resolves every claimed mapping against it, reporting `MAPPING HOLDS`, `MAPPING BROKEN`, or
 `unverified`. That third outcome matters: a single record cannot disprove a mapping just by having
 nothing at that location, so a field that is declared-but-unset, null, or an empty list is reported
@@ -356,7 +411,7 @@ Unlike the lossy-update guard this **cannot be a refusal**, because for the rena
 a correct call to make and for the rest there is no value to fetch. So it informs instead:
 
 - Affected operations carry a line in their tool description and in
-  [docs/TOOLS.md](docs/TOOLS.md) — `NOTE:` naming where to read a renamed field, `CAUTION:` for
+  [TOOLS.md](TOOLS.md) — `NOTE:` naming where to read a renamed field, `CAUTION:` for
   fields with no known source.
 - A write that omits any of them gets an `omittedFields` block in its result, splitting
   `readableElsewhere` (with the location to read from) from `noKnownSource`. A call that sets them
@@ -374,14 +429,9 @@ because settling it needs a write.
 
 **It was wrong. `PATCH /api/alertRules/{alertRuleId}` merges.**
 
-```bash
-IVEDAAI_BASE_URL=… IVEDAAI_USERNAME=… IVEDAAI_PASSWORD=… \
-  IVEDAAI_ALLOW_WRITE_PROBE=true npm run probe:semantics
-```
-
-[`scripts/probe-update-semantics.ts`](scripts/probe-update-semantics.ts) creates its own disabled
-`VIDEO_SEARCH` rule, records what stuck, sends a partial body carrying only the three required
-fields, and reads it back. Every omitted field survived, reproduced across three runs:
+The private maintainer probe created its own disabled `VIDEO_SEARCH` rule, recorded what stuck, sent
+a partial body carrying only the three required fields, and read it back. Every omitted field
+survived, reproduced across three runs:
 
 | Omitted field | Before | After partial `PATCH` |
 | --- | --- | --- |
@@ -394,7 +444,7 @@ fields, and reads it back. Every omitted field survived, reproduced across three
 
 `description` is the one that settles it: a plain top-level scalar, exactly the shape of the
 `externalId` that user-groups *does* clear. So **omission behaviour is per-endpoint, and cannot be
-inferred from the verb** — which is why [`src/partialUpdate.ts`](src/partialUpdate.ts) now records
+inferred from the verb** — which is why [`src/partialUpdate.ts`](../src/partialUpdate.ts) now records
 confirmed semantics per operation (`clears-omitted`, `merges`, `rejects-partial`) and the warnings
 are phrased from it. An endpoint known to merge is no longer told it might lose data.
 
@@ -426,7 +476,8 @@ the pre-read fails or comes back without the required fields.
   streams) never terminate on their own. Calls to them return after `IVEDAAI_TIMEOUT_MS` with
   `timedOut: true` and whatever data arrived — they can't be consumed continuously through a tool
   call.
-- **Binary responses are not inlined** — the server returns `{ contentType, byteLength, filename? }`
+- **Supported image responses are attached as MCP image content** — JPEG, PNG, GIF and WebP can be
+  viewed by the model. Other binary responses return `{ contentType, byteLength, filename? }`
   metadata instead, to avoid dumping raw bytes into the model's context. What counts as binary is an
   allowlist of *textual* types (`text/*`, `application/json`/`xml`/`+json`/`+xml`, and friends)
   rather than a blocklist of binary ones. `content-disposition: attachment` decides only the case

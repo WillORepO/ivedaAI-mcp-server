@@ -37,7 +37,8 @@ npm run build
       "env": {
         "IVEDAAI_BASE_URL": "https://your-server.example.com",
         "IVEDAAI_USERNAME": "your-username",
-        "IVEDAAI_PASSWORD": "your-password"
+        "IVEDAAI_PASSWORD": "your-password",
+        "IVEDAAI_UPLOAD_ROOT": "C:\\approved-uploads"
       }
     }
   }
@@ -47,7 +48,7 @@ npm run build
 **Claude Code** —
 
 ```bash
-claude mcp add ivedaai -e IVEDAAI_BASE_URL=https://your-server.example.com -e IVEDAAI_USERNAME=your-username -e IVEDAAI_PASSWORD=your-password -- node C:\path\to\ivedaai-mcp-server\dist\index.js
+claude mcp add ivedaai -e IVEDAAI_BASE_URL=https://your-server.example.com -e IVEDAAI_USERNAME=your-username -e IVEDAAI_PASSWORD=your-password -e IVEDAAI_UPLOAD_ROOT=C:\approved-uploads -- node C:\path\to\ivedaai-mcp-server\dist\index.js
 ```
 
 On-prem server with a self-signed certificate? Add `"IVEDAAI_ALLOW_INSECURE_TLS": "true"`.
@@ -59,7 +60,7 @@ revokes it early. You never handle tokens yourself.
 
 ## How the tools work
 
-Instead of 315 separate tools, the server groups the API into **one tool per resource** —
+Instead of 316 separate tools, the server groups the complete API into **one tool per resource** —
 `ivedaai_camera`, `ivedaai_alert`, `ivedaai_face_target`, and so on. Every call has the same shape:
 
 ```jsonc
@@ -91,8 +92,9 @@ Three things worth knowing:
 - **`ivedaai_get_schema`** returns the exact JSON schema for any named type (`CameraRequest`,
   `Schedule`, `Contour`, …). Use it when a request body has nested objects whose shape isn't
   obvious from the tool description.
-- **HTTP errors come back as data**, not crashes: a 404 or 400 returns the envelope with that
-  status and the server's error body, so the assistant can read the message and correct itself.
+- **HTTP errors retain their response data:** a 404 or 400 is marked as a tool execution error but
+  still returns the envelope with that status and the server's body, so the assistant can read the
+  message and correct itself.
 
 ## Common workflows
 
@@ -229,10 +231,10 @@ a camera or job.
   never terminate; a call to them returns after the timeout (default 30 s) with `timedOut: true`
   and whatever data arrived. Use polling (`GET /api/alerts`, `GET /api/jobs`) instead of the event
   stream.
-- **Big responses are capped** at 2 MB by default (`truncated: true` past that). For large result
+- **Big responses are capped** at 28,672 bytes by default (`truncated: true` past that). For large result
   sets, filter server-side (`size`, time ranges) rather than fetching everything.
-- **Binary downloads aren't inlined** — image/video responses return `{ contentType, byteLength }`
-  metadata only.
+- **Supported images are attached for viewing** — JPEG, PNG, GIF and WebP responses become MCP image
+  content. Other binary downloads return `{ contentType, byteLength, filename? }` metadata only.
 - **Destructive operations are real.** DELETE operations (and tools carrying them are annotated
   `destructiveHint`) permanently remove cameras, targets, footage, etc. on your deployment. There
   is no dry-run mode.
@@ -240,8 +242,9 @@ a camera or job.
   answers `202 Accepted`; the record can take from a few seconds (a camera) to well over a minute
   (a face target) to disappear. Worse, **deleting a camera whose stream resource is still held is
   dropped silently** — you get `202` and the camera stays. Deactivate it first
-  (`POST /api/cameras/{id}/jobs?activate=false`), wait a few seconds, *then* delete. Always confirm
-  by re-reading rather than trusting the status.
+  (`POST /api/cameras/{id}/jobs?activate=false`), poll `GET /api/cameras/{id}` until its `status` is
+  `Idle`, issue one DELETE, then poll that item GET until it answers `404 Not Found`. Do not replace
+  either poll with a fixed delay or trust the `202`.
 - **Activating a camera consumes an engine slot, not just a `CameraResource`.** How many cameras you
   can activate is set by **your licence**, not by a fixed product limit. Read
   `GET /api/resources/usage` before adding cameras: each entry's `total` is licensed capacity, and
@@ -252,8 +255,9 @@ a camera or job.
   `resources` and `pluginMap` fields are exactly where those totals come from. A pool showing `0` is
   a feature your licence does not include.
 - **File uploads read from the server process's filesystem** — the `file.path` must be readable by
-  whatever machine runs this MCP server, which matters if you run it remotely.
-- **API version**: the bundled spec is IvedaAI API 9.3.0. If your deployment differs, point
+  whatever machine runs this MCP server, which matters if you run it remotely. Uploads are disabled
+  unless `IVEDAAI_UPLOAD_ROOT` confines them to an approved directory.
+- **API version**: the bundled spec is IvedaAI API 10.0.0. If your deployment differs, point
   `IVEDAAI_SWAGGER_PATH` at your server's own OpenAPI document and rebuild — the tools regenerate
   automatically.
 

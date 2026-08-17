@@ -203,7 +203,7 @@ function describeOperation(spec: any, op: Operation, gaps: Record<string, RoundT
  * How to drive this server, stated once.
  *
  * Passed as MCP `instructions` at initialize, so it costs one copy instead of
- * the 62 that saying it per tool costs. Nothing here is load-bearing on its own:
+ * the 63 that saying it per generated tool costs. Nothing here is load-bearing on its own:
  * see the note on `describeTag`'s header for why a client that ignores
  * `instructions` still has what it needs.
  */
@@ -212,10 +212,16 @@ export const SERVER_INSTRUCTIONS =
   `chosen from the list in that tool's description, plus "path", "query", "body" and "file" as the chosen ` +
   `operation requires.\n\n` +
   `Every call returns JSON {url, method, status, statusText, headers, body}. "status" is the HTTP status ` +
-  `code — check it rather than assuming success, because a 4xx or 5xx comes back as content, not as a tool ` +
-  `error. "truncated" or "timedOut" appear when a large or streaming response was cut off.\n\n` +
+  `code — check it rather than assuming success. A 4xx or 5xx retains that envelope and is marked as a tool execution error, ` +
+  `so its status and response body remain available. "truncated" or "timedOut" appear when a large or streaming response was cut off.\n\n` +
   `Request bodies are named by their schema definition rather than spelled out in full. Call ` +
-  `ivedaai_get_schema with that name for the complete field list.`;
+  `ivedaai_get_schema with that name for the complete field list.\n\n` +
+  `List operations return one page, not the whole collection. Where they do, a "pagination" object ` +
+  `sits beside "body" giving {total, count, page, size, hasMore, nextPage} — "total" is the size of ` +
+  `the collection and "count" is how much of it this response holds, so they routinely differ. When ` +
+  `"hasMore" is true, follow "pagination.note". When the response identifies a next page, the note ` +
+  `names its operation-specific query or body arguments; otherwise it warns not to invent one. Do not ` +
+  `report the page you have as though it were the whole set.`;
 
 /**
  * Why the write operations are missing, for a server running read-only.
@@ -251,7 +257,7 @@ export const READ_ONLY_NOTE =
 /**
  * The same point, compressed, for the per-tool header.
  *
- * Kept short because it is paid 62 times — though only in read-only mode, where
+ * Kept short because it is paid once per generated tool — though only in read-only mode, where
  * withholding the writes has already saved far more than this costs.
  */
 export const READ_ONLY_TOOL_NOTE =
@@ -262,7 +268,7 @@ export const READ_ONLY_TOOL_NOTE =
  * Builds the full tool description text for a tag, enumerating every operation
  * within it.
  *
- * The header is deliberately thin. It used to restate, on all 62 tools, both how
+ * The header is deliberately thin. It used to restate, on every generated tool, both how
  * to call the tool and what it returns — 326 characters each, 20,764 in total,
  * the largest line item in the budget `npm run measure` reports.
  *

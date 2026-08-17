@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { constants, readFileSync, writeFileSync, mkdtempSync, mkdirSync, realpathSync, symlinkSync, rmSync, openSync, renameSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
@@ -15,6 +17,14 @@ import {
   PLAIN_TEXT_BODY_OPS,
 } from "../src/request.js";
 import { buildTriggerBody, interpretTestResult, TRIGGER_TYPES, mergeTriggerIntoRule, describeTriggerTypes, describeTriggerTypesCompact } from "../src/alertTrigger.js";
+import { paginatedOperations, paginationRequest, summarisePage, pageNote } from "../src/pagination.js";
+import {
+  isSameUploadFileIdentity,
+  isUploadPathInsideRoot,
+  readUploadFile,
+  resolveUploadPath,
+  uploadPolicyFromEnv,
+} from "../src/uploadPath.js";
 import {
   computeRoundTripGaps,
   fieldsAtRisk,
@@ -66,7 +76,7 @@ function bodyLine(opId: string): string {
 }
 
 describe("tool description headers", () => {
-  // The header used to restate, on all 62 tools, both how to call the tool and
+  // The header used to restate, on every generated tool, both how to call the tool and
   // what it returns. The calling half duplicated the inputSchema in index.ts;
   // the returning half did not, and is the part that has to survive here
   // because `instructions` is something a client may legitimately ignore.
@@ -93,6 +103,11 @@ describe("tool description headers", () => {
     // The response contract belongs here in full, since the per-tool header
     // carries only the compressed form.
     expect(SERVER_INSTRUCTIONS).toContain("statusText");
+  });
+
+  it("describes HTTP failures as tool execution errors that retain their response envelope", () => {
+    expect(SERVER_INSTRUCTIONS).toContain("marked as a tool execution error");
+    expect(SERVER_INSTRUCTIONS).not.toContain("not as a tool error");
   });
 });
 
@@ -1707,11 +1722,35 @@ describe("capability notes", () => {
     }
   });
 
+  it("warns that deleting an active camera is silently ignored", () => {
+    // Measured three times before it was believed: one delete removes an Idle
+    // camera in ~2s and does nothing to a Processing one for at least 41s,
+    // while both answer 202 with an empty body. Nothing in the response
+    // distinguishes them, so a caller must deactivate, wait for Idle, delete,
+    // and then poll until the record is absent.
+    const note = capabilityNote("DELETE /api/cameras/{cameraId}")!;
+    expect(note).toContain("activate=false");
+    expect(note).toContain('status is "Idle"');
+    expect(note).toMatch(/poll/i);
+    expect(note).toMatch(/404|not found/i);
+    expect(note).toContain("202");
+    expect(note).toMatch(/does nothing/i);
+
+    const deleteDescription = cameraDocs.slice(cameraDocs.indexOf("DELETE /api/cameras/{cameraId}"));
+    expect(deleteDescription).toContain("activate=false");
+    expect(deleteDescription).toContain('status is "Idle"');
+    expect(deleteDescription).toContain("404 Not Found");
+  });
+
   it("leaves ordinary operations alone", () => {
     // The point is a handful of genuinely hidden capabilities, not commentary
     // on every endpoint — each note is paid for on every connect.
     expect(capabilityNote("GET /api/cameras/{cameraId}")).toBeUndefined();
-    expect(Object.keys(CAPABILITY_NOTES).length).toBeLessThan(6);
+    // The real constraint is the bar for adding one — measured against a
+    // deployment, not inferred — rather than a number. This cap exists to make
+    // drift into general commentary visible, so it should be raised
+    // deliberately and not as a reflex when the next note is written.
+    expect(Object.keys(CAPABILITY_NOTES).length).toBeLessThan(8);
   });
 });
 
@@ -1759,5 +1798,404 @@ describe("compact trigger type reference", () => {
     for (const [name, info] of Object.entries(TRIGGER_TYPES)) {
       expect(full, name).toContain(info.description);
     }
+  });
+});
+
+describe("pagination", () => {
+  const page = (extra: Record<string, unknown>) => ({ content: [1, 2], numberOfElements: 2, ...extra });
+
+  it("finds the paginated operations in the spec", () => {
+    const ids = paginatedOperations(loadSwagger().spec);
+    expect(ids.has("GET /api/cameras")).toBe(true);
+    // Paging is not a GET-only affair here: the search endpoints POST and page.
+    expect(ids.has("POST /api/alerts/_search")).toBe(true);
+    // An image endpoint is not a page, whatever else it is.
+    expect(ids.has("GET /api/streaming/{cameraId}/{type}.jpg")).toBe(false);
+  });
+
+  it("prefers the server's own last flag", () => {
+    // Deliberately contradicts the counts, so only `last` can produce this.
+    expect(summarisePage(page({ totalElements: 400, totalPages: 400, number: 0, size: 2, last: true }))?.hasMore).toBe(
+      false
+    );
+  });
+
+  it("falls back to the page index against the page count", () => {
+    expect(summarisePage(page({ totalElements: 400, totalPages: 3, number: 1, size: 2 }))?.hasMore).toBe(true);
+    expect(summarisePage(page({ totalElements: 400, totalPages: 3, number: 2, size: 2 }))?.hasMore).toBe(false);
+  });
+
+  it("falls back again to how far the records seen reach into the total", () => {
+    expect(summarisePage(page({ totalElements: 5, number: 0, size: 2 }))?.hasMore).toBe(true);
+    expect(summarisePage(page({ totalElements: 4, number: 1, size: 2 }))?.hasMore).toBe(false);
+  });
+
+  it("claims no more pages when it cannot tell", () => {
+    // Inventing a page that does not exist sends a caller into a retry loop;
+    // missing one leaves them exactly where they already were.
+    expect(summarisePage(page({}))?.hasMore).toBe(false);
+  });
+
+  it("reports this page's length, not the collection's", () => {
+    const s = summarisePage(page({ totalElements: 400, totalPages: 200, number: 0, size: 2, last: false }));
+    expect(s).toMatchObject({ total: 400, count: 2, page: 0, size: 2, hasMore: true, nextPage: 1 });
+  });
+
+  it("does not invent a continuation from a fractional page index", () => {
+    const summary = summarisePage(page({ totalElements: 4, number: 1.5, size: 1, last: false }))!;
+    expect(summary).not.toHaveProperty("nextPage");
+  });
+
+  it("declines anything that is not a page", () => {
+    expect(summarisePage({ cameraId: 1 })).toBeUndefined();
+    expect(summarisePage([1, 2, 3])).toBeUndefined();
+    // A truncated body arrives as the partial text it was, not as parsed JSON.
+    expect(summarisePage("{\"content\":[")).toBeUndefined();
+    expect(summarisePage(null)).toBeUndefined();
+  });
+
+  it("says what to send next, and only when there is a next", () => {
+    const more = summarisePage(page({ totalElements: 400, number: 0, size: 2, last: false }))!;
+    const request = paginationRequest(ctx.spec, findOp("GET /api/cameras"));
+    expect(pageNote(more, request)).toContain('{"page": 1}');
+    expect(pageNote(more, request)).toContain("2 of 400 records");
+    expect(pageNote(summarisePage(page({ totalElements: 2, number: 0, size: 2, last: true }))!, request)).toBeUndefined();
+  });
+
+  it("warns about a partial result without inventing a continuation it cannot derive", () => {
+    const summary = summarisePage(page({ totalElements: 4, last: false }))!;
+    const note = pageNote(summary, undefined);
+
+    expect(note, "a partial result must still carry a warning").toBeDefined();
+    expect(note).toContain("partial result");
+    expect(note).toContain("does not declare a trustworthy continuation argument");
+    expect(note).not.toContain('{"page"');
+  });
+
+  it("distinguishes a missing next-page value from a missing continuation argument", () => {
+    const summary = summarisePage(page({ totalElements: 4, last: false }))!;
+    const request = paginationRequest(ctx.spec, findOp("GET /api/cameras"));
+    const note = pageNote(summary, request);
+
+    expect(note).toContain("response does not identify the next page");
+    expect(note).not.toContain("operation does not declare");
+    expect(note).not.toContain('{"page"');
+  });
+
+  it("puts the next page in a JSON request body when that is what the operation declares", () => {
+    const operation = findOp("POST /api/alerts/_search");
+    const request = paginationRequest(ctx.spec, operation);
+
+    expect(request).toEqual({ container: "body", pageParameter: "page", sizeParameter: "size" });
+    const note = pageNote(summarisePage(page({ totalElements: 4, number: 0, size: 2, last: false }))!, request);
+    expect(note).toContain('body {"page": 1}');
+    expect(note).toContain("preserving the other arguments");
+  });
+
+  it("uses the live-working page and size parameters for line sets instead of the inert spec aliases", () => {
+    const operation = findOp("GET /api/lineSets");
+    const request = paginationRequest(ctx.spec, operation);
+
+    expect(request).toEqual({ container: "query", pageParameter: "page", sizeParameter: "size" });
+    expect(validateArgs(operation, { query: { page: 1, size: 1 } })).toEqual([]);
+    expect(validateArgs(operation, { query: { pageNumber: 1, pageSize: 1 } }).join(" ")).toContain(
+      "Unknown query parameter"
+    );
+    expect(buildUrl("http://x", "/ainvr", operation, { query: { page: 1, size: 1 } }).toString()).toBe(
+      "http://x/ainvr/api/lineSets?page=1&size=1"
+    );
+    const note = pageNote(summarisePage(page({ totalElements: 4, number: 0, size: 2, last: false }))!, request);
+    expect(note).toContain('query {"page": 1}');
+    expect(note).toContain('larger "size"');
+  });
+
+  it("does not apply the bundled line-set correction to an operator-supplied spec", () => {
+    const directory = mkdtempSync(join(tmpdir(), "ivedaai-alternate-spec-"));
+    const alternate = join(directory, "openapi.json");
+    writeFileSync(alternate, readFileSync(join(__dirname, "..", "resources", "openapi.json")));
+    const previous = process.env.IVEDAAI_SWAGGER_PATH;
+    process.env.IVEDAAI_SWAGGER_PATH = alternate;
+
+    try {
+      const alternateContext = loadSwagger();
+      const operation = alternateContext.tags
+        .flatMap((group) => group.operations)
+        .find((candidate) => candidate.id === "GET /api/lineSets")!;
+      expect(paginationRequest(alternateContext.spec, operation)).toEqual({
+        container: "query",
+        pageParameter: "pageNumber",
+        sizeParameter: "pageSize",
+      });
+    } finally {
+      if (previous === undefined) delete process.env.IVEDAAI_SWAGGER_PATH;
+      else process.env.IVEDAAI_SWAGGER_PATH = previous;
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("puts multipart pagination fields in the tool's body argument", () => {
+    const operation = findOp("POST /api/scene-objects/search/image");
+    const request = paginationRequest(ctx.spec, operation);
+
+    expect(request).toEqual({ container: "body", pageParameter: "pageNumber", sizeParameter: "pageSize" });
+    expect(pageNote(summarisePage(page({ number: 0, size: 2, last: false }))!, request)).toContain(
+      'body {"pageNumber": 1}'
+    );
+  });
+
+  it("derives a usable continuation request for every paginated operation in the bundled spec", () => {
+    const paginated = paginatedOperations(ctx.spec);
+    const operations = ctx.tags.flatMap((group) => group.operations).filter((operation) => paginated.has(operation.id));
+
+    expect(operations).toHaveLength(36);
+    for (const operation of operations) {
+      expect(paginationRequest(ctx.spec, operation), operation.id).toBeDefined();
+    }
+  });
+});
+
+describe("upload paths", () => {
+  const fixtures = mkdtempSync(join(tmpdir(), "ivedaai-upload-"));
+  mkdirSync(join(fixtures, "root"), { recursive: true });
+  const inside = join(fixtures, "root", "face.jpg");
+  const outside = join(fixtures, "secret.txt");
+  writeFileSync(inside, "jpeg");
+  writeFileSync(outside, "password");
+  const open = { allowUnconfined: true, maxBytes: 64 * 1024 * 1024 };
+  const confined = { root: realpathSync(join(fixtures, "root")), maxBytes: 64 * 1024 * 1024 };
+
+  it("does not fold case when checking a Windows case-sensitive directory", () => {
+    expect(isUploadPathInsideRoot("C:\\parent\\Root", "C:\\parent\\root\\secret.txt", "\\")).toBe(false);
+  });
+
+  it("compares 64-bit filesystem identities without Number precision loss", () => {
+    const first = BigInt(Number.MAX_SAFE_INTEGER) + 1n;
+    const second = first + 1n;
+    expect(Number(first)).toBe(Number(second));
+    expect(isSameUploadFileIdentity({ dev: 1n, ino: first }, { dev: 1n, ino: second })).toBe(false);
+  });
+  const withUploadEnv = <T>(root: string | undefined, allowUnconfined: string | undefined, fn: () => T): T => {
+    const previousRoot = process.env.IVEDAAI_UPLOAD_ROOT;
+    const previousEscape = process.env.IVEDAAI_ALLOW_UNCONFINED_UPLOADS;
+    if (root === undefined) delete process.env.IVEDAAI_UPLOAD_ROOT;
+    else process.env.IVEDAAI_UPLOAD_ROOT = root;
+    if (allowUnconfined === undefined) delete process.env.IVEDAAI_ALLOW_UNCONFINED_UPLOADS;
+    else process.env.IVEDAAI_ALLOW_UNCONFINED_UPLOADS = allowUnconfined;
+    try {
+      return fn();
+    } finally {
+      if (previousRoot === undefined) delete process.env.IVEDAAI_UPLOAD_ROOT;
+      else process.env.IVEDAAI_UPLOAD_ROOT = previousRoot;
+      if (previousEscape === undefined) delete process.env.IVEDAAI_ALLOW_UNCONFINED_UPLOADS;
+      else process.env.IVEDAAI_ALLOW_UNCONFINED_UPLOADS = previousEscape;
+    }
+  };
+
+  /**
+   * Whether this machine lets an ordinary process create a symlink.
+   *
+   * Windows does not, without administrator rights or developer mode, and
+   * `symlinkSync` fails with EPERM. Only *creating* one is privileged —
+   * `realpathSync` resolves them for anyone — so the guard under test works on
+   * Windows regardless; it is the fixture that cannot be built.
+   *
+   * Probed rather than inferred from `process.platform`, because a Windows
+   * machine with developer mode on should run the test rather than be assumed
+   * out of it.
+   */
+  const canCreateSymlinks = (() => {
+    const probe = join(fixtures, ".symlink-probe");
+    try {
+      symlinkSync(inside, probe);
+      rmSync(probe, { force: true });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  it("returns the real path of an ordinary file", () => {
+    expect(resolveUploadPath(inside, open)).toBe(realpathSync(inside));
+  });
+
+  it("opens and reads the vetted file through a bounded descriptor", () => {
+    expect(readUploadFile(inside, open)).toEqual({ path: realpathSync(inside), data: Buffer.from("jpeg") });
+  });
+
+  it.skipIf(!canCreateSymlinks)("refuses an intermediate-directory swap between validation and open", () => {
+    const raceDirectory = join(fixtures, "root", "race");
+    const movedDirectory = join(fixtures, "root", "race-vetted");
+    const outsideDirectory = join(fixtures, "race-outside");
+    mkdirSync(raceDirectory);
+    mkdirSync(outsideDirectory);
+    writeFileSync(join(raceDirectory, "face.jpg"), "INSIDE");
+    writeFileSync(join(outsideDirectory, "face.jpg"), "OUTSIDE");
+
+    expect(() =>
+      readUploadFile(join(raceDirectory, "face.jpg"), confined, (path, flags) => {
+        renameSync(raceDirectory, movedDirectory);
+        symlinkSync(outsideDirectory, raceDirectory, "dir");
+        return openSync(path, flags);
+      })
+    ).toThrow(/changed after validation/);
+  });
+
+  it.skipIf(process.platform !== "linux")("opens a raced FIFO nonblocking so descriptor validation can reject it", () => {
+    const path = join(fixtures, "root", "fifo-race.jpg");
+    writeFileSync(path, "INSIDE");
+
+    expect(() =>
+      readUploadFile(path, confined, (openedPath, flags) => {
+        rmSync(openedPath);
+        execFileSync("mkfifo", [openedPath]);
+        if ((flags & constants.O_NONBLOCK) === 0) {
+          throw new Error("opening the substituted FIFO would block");
+        }
+        return openSync(openedPath, flags);
+      })
+    ).toThrow(/changed after validation|not a regular file/);
+  });
+
+  it.skipIf(!canCreateSymlinks)("refuses an ancestor swap between containment validation and stat", () => {
+    const raceDirectory = join(fixtures, "root", "prestat-race");
+    const movedDirectory = join(fixtures, "root", "prestat-vetted");
+    const outsideDirectory = join(fixtures, "prestat-outside");
+    mkdirSync(raceDirectory);
+    mkdirSync(outsideDirectory);
+    writeFileSync(join(raceDirectory, "face.jpg"), "INSIDE");
+    writeFileSync(join(outsideDirectory, "face.jpg"), "OUTSIDE");
+
+    expect(() =>
+      readUploadFile(
+        join(raceDirectory, "face.jpg"),
+        confined,
+        openSync,
+        (path) => {
+          renameSync(raceDirectory, movedDirectory);
+          symlinkSync(outsideDirectory, raceDirectory, "dir");
+          return statSync(path, { bigint: true });
+        }
+      )
+    ).toThrow(/outside IVEDAAI_UPLOAD_ROOT/);
+  });
+
+  it("refuses every local file when no upload root or explicit escape hatch is configured", () => {
+    expect(() => resolveUploadPath(inside, { maxBytes: 64 * 1024 * 1024 })).toThrow(/IVEDAAI_UPLOAD_ROOT/);
+  });
+
+  it("enables unconstrained access only through the explicit environment escape hatch", () => {
+    const disabled = withUploadEnv(undefined, undefined, () => uploadPolicyFromEnv());
+    const enabled = withUploadEnv(undefined, "true", () => uploadPolicyFromEnv());
+
+    expect(disabled.allowUnconfined).toBe(false);
+    expect(enabled.allowUnconfined).toBe(true);
+  });
+
+  it("rejects malformed upload byte limits instead of partially parsing them", () => {
+    const previous = process.env.IVEDAAI_MAX_UPLOAD_BYTES;
+    try {
+      process.env.IVEDAAI_MAX_UPLOAD_BYTES = "10junk";
+      expect(() => uploadPolicyFromEnv()).toThrow(/positive integer/);
+      process.env.IVEDAAI_MAX_UPLOAD_BYTES = "1.5";
+      expect(() => uploadPolicyFromEnv()).toThrow(/positive integer/);
+    } finally {
+      if (previous === undefined) delete process.env.IVEDAAI_MAX_UPLOAD_BYTES;
+      else process.env.IVEDAAI_MAX_UPLOAD_BYTES = previous;
+    }
+  });
+
+  it("explains that the path is read here, not on the deployment", () => {
+    // The likeliest cause of this error is a path from the machine running the
+    // MCP client, which need not be this one.
+    expect(() => resolveUploadPath(join(fixtures, "nope.jpg"), open)).toThrow(/machine running this server/);
+  });
+
+  it("refuses a file outside the configured root", () => {
+    expect(() => resolveUploadPath(outside, confined)).toThrow(/outside IVEDAAI_UPLOAD_ROOT/);
+  });
+
+  it("refuses to be walked out of the root with ..", () => {
+    expect(() => resolveUploadPath(join(confined.root, "..", "secret.txt"), confined)).toThrow(
+      /outside IVEDAAI_UPLOAD_ROOT/
+    );
+  });
+
+  it("allows a file inside the root", () => {
+    expect(resolveUploadPath(inside, confined)).toBe(realpathSync(inside));
+  });
+
+  // Reported as skipped rather than quietly returning early. It used to do the
+  // latter, which meant that on any machine that cannot create a symlink — every
+  // stock Windows one — this printed a green tick for a test that never reached
+  // its assertion. A gap that announces itself is worth more than a pass that
+  // means nothing, and this is the case most worth having covered: the one a
+  // prefix check on the requested path gets wrong.
+  it.skipIf(!canCreateSymlinks)("refuses a symlink that leads out of the root", () => {
+    // Starts inside the root, ends up at the file outside it.
+    const link = join(confined.root, "escape.jpg");
+    symlinkSync(outside, link);
+    expect(() => resolveUploadPath(link, confined)).toThrow(/A symlink cannot be used/);
+  });
+
+  it.skipIf(!canCreateSymlinks)("accepts a file addressed through a symlink-configured upload root", () => {
+    const configuredRoot = join(fixtures, "configured-root");
+    symlinkSync(join(fixtures, "root"), configuredRoot);
+    const policy = withUploadEnv(configuredRoot, undefined, () => uploadPolicyFromEnv());
+
+    expect(resolveUploadPath(join(configuredRoot, "face.jpg"), policy)).toBe(realpathSync(inside));
+  });
+
+  it.skipIf(!canCreateSymlinks)("accepts the canonical spelling of a symlink-configured upload root", () => {
+    const configuredRoot = join(fixtures, "configured-root-canonical");
+    symlinkSync(join(fixtures, "root"), configuredRoot);
+    const policy = withUploadEnv(configuredRoot, undefined, () => uploadPolicyFromEnv());
+
+    expect(resolveUploadPath(inside, policy)).toBe(realpathSync(inside));
+  });
+
+  it("refuses the obvious credential locations when nothing is confining it", () => {
+    const ssh = join(fixtures, ".ssh");
+    mkdirSync(ssh, { recursive: true });
+    writeFileSync(join(ssh, "id_rsa"), "-----BEGIN");
+    expect(() => resolveUploadPath(join(ssh, "id_rsa"), open)).toThrow(/\.ssh/);
+
+    const config = join(fixtures, "claude_desktop_config.json");
+    writeFileSync(config, "{}");
+    // This one holds IVEDAAI_PASSWORD in clear text on a normal install.
+    expect(() => resolveUploadPath(config, open)).toThrow(/claude_desktop_config\.json/);
+
+    const key = join(fixtures, "server.pem");
+    writeFileSync(key, "-----BEGIN");
+    expect(() => resolveUploadPath(key, open)).toThrow(/\.pem/);
+  });
+
+  it("says the deny list is not the real control", () => {
+    expect(() => resolveUploadPath(join(fixtures, ".ssh", "id_rsa"), open)).toThrow(/IVEDAAI_UPLOAD_ROOT/);
+  });
+
+  it("does not apply the deny list when a root is confining it", () => {
+    // Redundant there, and it would refuse a legitimately-named file the
+    // operator has already vouched for by putting it in the root.
+    const named = join(confined.root, "credentials");
+    writeFileSync(named, "x");
+    expect(resolveUploadPath(named, confined)).toBe(realpathSync(named));
+  });
+
+  it("refuses a file over the size limit", () => {
+    expect(() => resolveUploadPath(inside, { allowUnconfined: true, maxBytes: 2 })).toThrow(/IVEDAAI_MAX_UPLOAD_BYTES/);
+  });
+
+  it("refuses anything that is not a regular file", () => {
+    // A directory here; the real target is a FIFO, which would answer a read
+    // forever and hang the upload rather than failing it.
+    expect(() => resolveUploadPath(confined.root, open)).toThrow(/not a regular file/);
+  });
+
+  it.skipIf(process.platform !== "linux")("refuses procfs files even when unconstrained access was explicitly enabled", () => {
+    expect(() => resolveUploadPath("/proc/self/environ", open)).toThrow(/virtual filesystem/);
+  });
+
+  it("refuses an empty path", () => {
+    expect(() => resolveUploadPath("   ", open)).toThrow(/empty/);
   });
 });
