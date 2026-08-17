@@ -116,6 +116,18 @@ beforeAll(async () => {
       res.end(blob);
       return;
     }
+    // A camera update, so the round-trip diagnostic has a 2xx to ride on. It
+    // must be a success: the SDK skips outputSchema validation when isError is
+    // set, so a 4xx would prove nothing about the declared shape.
+    if (/^\/ainvr\/api\/cameras\/\d+$/.test(url.pathname) && req.method === "PATCH") {
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ cameraId: 1, name: "Patched", nvr: null }));
+      });
+      return;
+    }
     // A multipart sink, so an upload that is *allowed* can be shown to arrive
     // rather than merely not being refused.
     if (url.pathname === "/ainvr/api/detection/objects" && req.method === "POST") {
@@ -648,6 +660,68 @@ describe("MCP server over stdio", () => {
       expect(res.result.isError).toBe(true);
       expect(uploadsReceived).toHaveLength(0);
       expect(tokenRequests).toBe(before);
+    });
+  }, 60_000);
+
+  /**
+   * The round-trip diagnostic, where a client receives it.
+   *
+   * `roundTrip.ts` is well covered — `fieldsAtRisk`, `roundTripWarning` and the
+   * rest all have unit tests. What had none, anywhere in the suite, is the
+   * `omittedFields` block those produce: it appeared in zero assertions across
+   * all four test files. The logic could be right and the wiring in `index.ts`
+   * wrong — attached to the text block but not `structuredContent`, or dropped
+   * altogether — and every existing test would pass.
+   *
+   * Confirmed against a deployment first (PATCH /api/cameras/147, 200, all three
+   * categories populated, no schema rejection), then pinned here so it holds
+   * without one.
+   */
+  const patchCamera = (body: Record<string, unknown>) => ({
+    name: "ivedaai_camera",
+    arguments: { operation: "PATCH /api/cameras/{cameraId}", path: { cameraId: 1 }, body },
+  });
+
+  it("reports the fields an update omits that no read returns", async () => {
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", patchCamera({ name: "Patched", cameraType: "General" }));
+      expect(res.result.isError).toBeFalsy();
+      const payload = JSON.parse(res.result.content[0].text);
+      const omitted = payload.omittedFields;
+      expect(omitted, "omittedFields should be attached").toBeDefined();
+      // nvrId is readable, but under another key; these two are readable nowhere.
+      expect(omitted.readableElsewhere).toContainEqual({ field: "nvrId", readAt: "nvr.nvrId" });
+      expect(omitted.noKnownSource).toEqual(expect.arrayContaining(["doRecording", "engineConfig"]));
+      expect(omitted.note).toContain("nvr.nvrId");
+    });
+  }, 60_000);
+
+  it("puts the diagnostic in structuredContent too, not only the text", async () => {
+    // The two halves of a result must not say different things — a client
+    // reading structured output would otherwise never learn a field was at risk.
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", patchCamera({ name: "Patched", cameraType: "General" }));
+      expect(res.result.structuredContent?.omittedFields).toBeDefined();
+      expect(res.result.structuredContent.omittedFields).toEqual(
+        JSON.parse(res.result.content[0].text).omittedFields
+      );
+    });
+  }, 60_000);
+
+  it("stays quiet when the body puts nothing at risk", async () => {
+    // A caller who sends the at-risk fields is not at risk, and a diagnostic
+    // that fires anyway trains people to ignore it.
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call(
+        "tools/call",
+        patchCamera({ name: "Patched", cameraType: "General", nvrId: 3, doRecording: false, engineConfig: {} })
+      );
+      expect(res.result.isError).toBeFalsy();
+      expect(JSON.parse(res.result.content[0].text).omittedFields).toBeUndefined();
+      expect(res.result.structuredContent?.omittedFields).toBeUndefined();
     });
   }, 60_000);
 
