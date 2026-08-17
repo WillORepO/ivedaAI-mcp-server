@@ -41,6 +41,8 @@ export interface TagGroup {
 
 export interface SwaggerContext {
   spec: any;
+  /** Whether deployment findings measured against the bundled spec may be applied. */
+  useBundledFindings: boolean;
   basePath: string;
   host: string;
   schemes: string[];
@@ -403,7 +405,7 @@ export function loadSwagger(): SwaggerContext {
       operations: operations.sort((a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method)),
     }));
 
-  return { spec, basePath, host, schemes, tokenUrl, tags };
+  return { spec, useBundledFindings, basePath, host, schemes, tokenUrl, tags };
 }
 
 /** Slugifies a tag name into a valid MCP tool name segment. */

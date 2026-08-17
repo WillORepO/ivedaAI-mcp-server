@@ -45,7 +45,7 @@ const policy = policyFromEnv();
 for (const group of ctx.tags) {
   const operations = allowedOperations(group.operations, policy);
   if (operations.length === 0) continue;
-  const chars = describeTag(ctx.spec, { ...group, operations }, gaps).length;
+  const chars = describeTag(ctx.spec, { ...group, operations }, gaps, ctx.useBundledFindings).length;
   total += chars;
   perTool.push({ tool: tagToToolName(group.tag), tag: group.tag, chars, ops: operations.length });
 }
@@ -59,6 +59,7 @@ let totalOps = 0;
 for (const group of ctx.tags) {
   for (const op of allowedOperations(group.operations, policy)) {
     totalOps++;
+    if (!ctx.useBundledFindings) continue;
     const w = [capabilityNote(op.id), lossyUpdateWarning(op.id), roundTripWarning(gaps[op.id], op.id)]
       .filter(Boolean)
       .join(" ");

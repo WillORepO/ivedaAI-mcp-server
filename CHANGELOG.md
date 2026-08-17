@@ -34,6 +34,8 @@ All notable changes to this project are documented here. The format follows
   mark deployment-facing tools as open-world.
 - Deleting an active camera now carries the measured safe workflow: deactivate, poll the camera to
   `Idle`, issue one DELETE, then poll until `404 Not Found` rather than trusting `202 Accepted`.
+- Counting dashboard and history now explain that `types` must be a top-level object-type key from
+  `GET /api/types/{category}`, not a nested synonym, line-set type, or IN/OUT direction.
 
 ## [1.0.0] — unreleased
 

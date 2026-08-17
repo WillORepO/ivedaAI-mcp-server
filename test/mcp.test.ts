@@ -44,6 +44,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 const testRequire = createRequire(import.meta.url);
 const TSX_CLI = join(dirname(testRequire.resolve("tsx/package.json")), "dist", "cli.mjs");
 const SERVER_ENTRY = fileURLToPath(new URL("../src/index.ts", import.meta.url));
+const BUNDLED_SPEC = fileURLToPath(new URL("../resources/openapi.json", import.meta.url));
 
 let mock: Server;
 let port: number;
@@ -363,6 +364,17 @@ describe("MCP server over stdio", () => {
       for (const tool of tools) {
         expect(tool.description, tool.name).not.toContain("Read-only mode");
       }
+    });
+  }, 60_000);
+
+  it("does not publish bundled deployment findings for an operator-supplied spec", async () => {
+    await withClient({ IVEDAAI_SWAGGER_PATH: BUNDLED_SPEC }, async (c) => {
+      await c.start();
+      const tools = (await c.call("tools/list")).result.tools;
+      const counting = tools.find((tool: any) => tool.name === "ivedaai_counting");
+      expect(counting).toBeDefined();
+      expect(counting.description).not.toContain("top-level object-type keys");
+      for (const tool of tools) expect(tool.description, tool.name).not.toContain("CAUTION:");
     });
   }, 60_000);
 

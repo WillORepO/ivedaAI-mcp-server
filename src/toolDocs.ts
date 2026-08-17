@@ -158,7 +158,12 @@ function formatNonBodyParam(p: ParamDef): string {
   return `${p.name}${req}:${pattern ? `${typeStr}(${pattern})` : typeStr}${extra}`;
 }
 
-function describeOperation(spec: any, op: Operation, gaps: Record<string, RoundTripGap>): string {
+function describeOperation(
+  spec: any,
+  op: Operation,
+  gaps: Record<string, RoundTripGap>,
+  useBundledFindings: boolean
+): string {
   const lines: string[] = [];
   const title = op.summary ? `${op.id} — ${op.summary}` : op.id;
   lines.push(title);
@@ -182,18 +187,18 @@ function describeOperation(spec: any, op: Operation, gaps: Record<string, RoundT
   // What this operation is for, when its summary does not say. Placed above the
   // guards because it answers an earlier question: those two correct a call the
   // caller is already making, this one is why the caller would pick it at all.
-  const capability = capabilityNote(op.id);
+  const capability = useBundledFindings ? capabilityNote(op.id) : undefined;
   if (capability) lines.push(`  ${capability}`);
 
   // Stated in the docs as well as enforced at call time: a caller that knows
   // beforehand can send the right body instead of learning from a refusal.
-  const warning = lossyUpdateWarning(op.id);
+  const warning = useBundledFindings ? lossyUpdateWarning(op.id) : undefined;
   if (warning) lines.push(`  ${warning}`);
 
   // Fields this update accepts that no read returns. Unlike the lossy-update
   // guard this cannot be enforced at call time — there is no corrected call to
   // demand — so stating it up front is the only place it can be acted on.
-  const roundTrip = roundTripWarning(gaps[op.id], op.id);
+  const roundTrip = useBundledFindings ? roundTripWarning(gaps[op.id], op.id) : undefined;
   if (roundTrip) lines.push(`  ${roundTrip}`);
 
   return lines.join("\n");
@@ -286,10 +291,15 @@ export const READ_ONLY_TOOL_NOTE =
  * That split is the point: `instructions` is a nice-to-have rather than a
  * dependency, so this does not quietly break on a client that ignores it.
  */
-export function describeTag(spec: any, group: TagGroup, gaps = computeRoundTripGaps(spec)): string {
+export function describeTag(
+  spec: any,
+  group: TagGroup,
+  gaps = computeRoundTripGaps(spec),
+  useBundledFindings = false
+): string {
   const header =
     `IvedaAI API — ${group.tag} operations. Response JSON: "status" is the HTTP status code; ` +
     `"truncated"/"timedOut" flag a cut-off response.\n`;
-  const body = group.operations.map((op) => describeOperation(spec, op, gaps)).join("\n\n");
+  const body = group.operations.map((op) => describeOperation(spec, op, gaps, useBundledFindings)).join("\n\n");
   return header + "\n" + body;
 }
