@@ -82,16 +82,9 @@ This server exposes **63 resource tools** plus `ivedaai_get_schema`, `ivedaai_al
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `nameContains` | query | no | string | nameContains. |
 | `userGroupId` | query | no | string | userGroupId. |
 | `userGroupNameContains` | query | no | string | userGroupNameContains. |
@@ -185,16 +178,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 
 #### `POST /api/ainvrs` — Create Ainvr
 
@@ -255,16 +241,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `start` | query | **yes** | string | yyyy-MM-dd[ HH:mm:ss[Z]]. |
 | `end` | query | **yes** | string | yyyy-MM-dd[ HH:mm:ss[Z]]. |
 | `timezone` | query | no | string | client timezone. |
@@ -332,16 +311,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `ainvrIds` | query | no | integer | seperated ainvr ids with comma. |
 | `cameraIds` | query | no | integer | seperated camera ids with comma. |
 | `name` | query | no | string | Partial match string. |
@@ -443,16 +415,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `start` | query | **yes** | string | yyyy-MM-dd[ HH:mm:ss[Z]]. |
 | `end` | query | **yes** | string | yyyy-MM-dd[ HH:mm:ss[Z]]. |
 | `accountName` | query | no | string | account name. |
@@ -487,16 +452,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `ainvrId` | query | no | integer | integer. |
 | `name` | query | no | string | Exact string match. |
 | `nameContains` | query | no | string | Partial match string. |
@@ -609,16 +567,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `start` | query | **yes** | string | yyyy-MM-dd[ HH:mm:ss[Z]]. |
 | `end` | query | **yes** | string | yyyy-MM-dd[ HH:mm:ss[Z]]. |
 | `timezone` | query | no | string | client timezone. |
@@ -630,16 +581,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `nameContains` | query | no | string | Partial match string. |
 | `ainvrIds` | query | no | integer | ainvrIds. |
 | `plugins` | query | no | string | plugin has any. |
@@ -856,16 +800,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `start` | query | **yes** | string | Start datetime in format yyyy-MM-dd[ HH:mm:ss[Z]]. |
 | `end` | query | **yes** | string | End datetime in format yyyy-MM-dd[ HH:mm:ss[Z]]. |
 | `dwellHistoryId` | query | no | integer | Filter by specific dwell history ID. |
@@ -882,16 +819,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `ainvrId` | query | no | integer | long. |
 
 #### `POST /api/engineModels` — Upload AI Model
@@ -934,16 +864,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 
 ## ivedaai_engine_profile
 
@@ -951,16 +874,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `nameContains` | query | no | string | Name contains. |
 | `engineModelIds` | query | no | integer | seperated engine model ids with comma. |
 | `isDefault` | query | no | boolean | Boolean. |
@@ -1013,16 +929,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `start` | query | **yes** | string | yyyy-MM-dd[ HH:mm:ss[Z]]. |
 | `end` | query | **yes** | string | yyyy-MM-dd[ HH:mm:ss[Z]]. |
 | `timezone` | query | no | string | client timezone. |
@@ -1162,17 +1071,10 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
 | `start` | query | **yes** | string | yyyy-MM-dd HH:mm:ss. |
-| `unpaged` | query | no | boolean | |
 | `end` | query | **yes** | string | yyyy-MM-dd HH:mm:ss. |
 | `ainvrIds` | query | no | integer | comma seperated integer. |
 | `cameraIds` | query | no | integer | comma seperated integer. |
@@ -1251,16 +1153,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `category` | query | no | string | FaceCategory name. |
 | `nameContains` | query | no | string | Partial match name. |
 
@@ -1336,16 +1231,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 
 #### `POST /api/filters` — Create filter
 
@@ -1383,16 +1271,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `ainvrIds` | query | no | integer | comma seperated integer. |
 | `cameraIds` | query | no | integer | comma seperated integer. |
 | `latitude` | query | no | number | latitude. |
@@ -1431,16 +1312,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `name` | query | no | string | name. |
 | `macAddress` | query | no | string | macAddress. |
 
@@ -1494,17 +1368,10 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
 | `start` | query | **yes** | string | yyyy-MM-dd HH:mm:ss. |
-| `unpaged` | query | no | boolean | |
 | `end` | query | **yes** | string | yyyy-MM-dd HH:mm:ss. |
 | `ainvrIds` | query | no | integer | comma seperated integer. |
 | `cameraIds` | query | no | integer | comma seperated integer. |
@@ -1616,16 +1483,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `types` | query | **yes** | string | types. — one of: RetrieveJob, StreamJob, UploadJob |
 | `cameraIds` | query | no | integer | cameraIds. |
 | `footageIds` | query | no | integer | footageIds. |
@@ -1765,16 +1625,9 @@ _No parameters._
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
 | `ainvrIds` | query | no | integer | comma seperated integer. |
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `start` | query | **yes** | string | yyyy-MM-dd HH:mm:ss. |
 | `end` | query | **yes** | string | yyyy-MM-dd HH:mm:ss. |
 | `cameraIds` | query | no | integer | comma seperated integer. |
@@ -1873,16 +1726,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `category` | query | no | string | Category name. |
 | `plateNumber` | query | no | string | Partial match plate number. |
 | `vehicleOwner` | query | no | string | Partial match vehicle owner. |
@@ -1931,13 +1777,8 @@ _No parameters._
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
 | `ainvrIds` | query | no | integer | seperated ainvr ids with comma. |
-| `offset` | query | no | integer | |
 | `page` | query | no | integer | |
 | `size` | query | no | integer | |
-| `paged` | query | no | boolean | |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `cameraIds` | query | no | integer | comma separated integer. |
 | `nameContains` | query | no | string | line set name contains. |
 | `types` | query | no | string | comma separated types. — one of: Dwell, ObjectCounting, ObjectDirection |
@@ -2011,16 +1852,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `name` | query | no | string | name. |
 | `vendor` | query | no | string | vendor. |
 | `version` | query | no | string | version. |
@@ -2060,16 +1894,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 
 #### `POST /api/nvrs` — Create Nvr
 
@@ -2102,16 +1929,9 @@ _No parameters._
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
 | `nvrId` | path | **yes** | string | nvrId. |
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 
 #### `GET /api/nvrs/{nvrId}/channels` — Find Nvr channels
 
@@ -2237,16 +2057,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 
 #### `POST /api/plugins` — Import Plugin
 
@@ -2294,16 +2107,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `ainvrIds` | query | no | integer | separated ainvr ids with comma. |
 | `nameContains` | query | no | string | roi name contains. |
 | `cameraIds` | query | no | integer | separated camera ids with comma. |
@@ -2354,17 +2160,10 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
 | `start` | query | **yes** | string | yyyy-MM-dd HH:mm:ss. |
-| `unpaged` | query | no | boolean | |
 | `end` | query | **yes** | string | yyyy-MM-dd HH:mm:ss. |
 | `cameraIds` | query | no | integer | comma seperated integer. |
 | `footageIds` | query | no | integer | comma seperated integer. |
@@ -2441,14 +2240,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
+| `page` | query | no | integer | |
+| `size` | query | no | integer | |
 | `start` | query | **yes** | string | yyyy-MM-dd HH:mm:ss. |
-| `unpaged` | query | no | boolean | |
 | `end` | query | **yes** | string | yyyy-MM-dd HH:mm:ss. |
 | `cameraIds` | query | no | integer | comma sperated integer. |
 | `footageIds` | query | no | integer | comma seperated integer. |
@@ -2468,17 +2262,10 @@ _No parameters._
 | `descriptors` | query | **yes** | string | the descriptor of the scene object. |
 | `end` | query | **yes** | string | yyyy-MM-dd HH:mm:ss. |
 | `footageIds` | query | no | integer | comma seperated integer. |
-| `offset` | query | no | integer | |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `removedTargetDescriptors` | query | no | string | the descriptor of the removed scene object. |
 | `similarity` | query | no | number | similarity of object. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
 | `start` | query | **yes** | string | yyyy-MM-dd HH:mm:ss. |
 | `trackType` | query | **yes** | string | the object type of the scene object. — one of: Person, Vehicle |
-| `unpaged` | query | no | boolean | |
 
 #### `POST /api/scene-objects/search/image` — Search similar scene object by image
 
@@ -2579,16 +2366,9 @@ _No parameters._
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
 | `nameContains` | query | no | string | nameContains. |
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 
 #### `POST /api/user-groups` — Create user group
 
@@ -2634,16 +2414,9 @@ _No parameters._
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
-| `offset` | query | no | integer | |
 | `page` | query | no | object | page number. |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
-| `paged` | query | no | boolean | |
 | `size` | query | no | object | page size. |
 | `sort` | query | no | object | sorting field and direction(ASC,DESC) seperated with comma.. |
-| `sort.sorted` | query | no | boolean | |
-| `sort.unsorted` | query | no | boolean | |
-| `unpaged` | query | no | boolean | |
 | `userGroupId` | path | **yes** | string | userGroupId. |
 | `nameContains` | query | no | string | nameContains. |
 
