@@ -106,7 +106,9 @@ out.push("");
 out.push(
   "Looks up the full JSON schema for any named definition from the spec (e.g. `CameraRequest`). " +
     "Call with no arguments to list all definition names. Use it when a body summary above is " +
-    "truncated or references a nested type like `Contour` or `Schedule`."
+    "truncated or references a nested type like `Contour` or `Schedule`.\n\n" +
+    "Answers `{name, schema}` for a lookup and `{names}` for the listing — both wrapped rather " +
+    "than bare, because MCP requires `structuredContent` to be an object."
 );
 out.push("");
 

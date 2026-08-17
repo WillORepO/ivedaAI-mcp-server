@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { fetch, FormData, type Response } from "undici";
 import type { Operation, ParamDef } from "./swagger.js";
 import type { TokenManager } from "./auth.js";
 import { connectionFailureMessage } from "./netError.js";
+import { readUploadFile, type UploadPolicy } from "./uploadPath.js";
 import { redactSecrets } from "./redact.js";
 
 export interface FileInput {
@@ -426,7 +426,9 @@ export const PLAIN_TEXT_BODY_OPS = new Set(["POST /api/hashtags"]);
 
 function buildRequestBody(
   operation: Operation,
-  args: OperationArgs
+  args: OperationArgs,
+  uploadPolicy: UploadPolicy,
+  preparedUpload?: { data: Buffer }
 ): { body: FormData | string | undefined; contentType?: string } {
   const formDataParams = paramsIn(operation, "formData");
   // The declared file part, or the one MULTIPART_FILE_FIELD recovered for an
@@ -456,9 +458,13 @@ function buildRequestBody(
     let hasEntries = false;
 
     if (fileParam && args.file) {
-      const buffer = readFileSync(args.file.path);
+      // Vetted before it is opened, and the vetted path is the one read — see
+      // src/uploadPath.ts for what this is defending against. The name still
+      // comes from what the caller asked for rather than from the resolved
+      // path, so a symlink uploads under the name the caller used.
+      const { data: buffer } = preparedUpload ?? readUploadFile(args.file.path, uploadPolicy);
       const filename = args.file.filename ?? basename(args.file.path);
-      const blob = new Blob([buffer], { type: args.file.contentType ?? "application/octet-stream" });
+      const blob = new Blob([Uint8Array.from(buffer)], { type: args.file.contentType ?? "application/octet-stream" });
       form.append(fileParam.name, blob, filename);
       hasEntries = true;
     }
@@ -517,13 +523,24 @@ export async function executeOperation(
   const timeoutMs = overrideTimeoutMs ?? tokenManager.timeoutMs;
   const url = buildUrl(tokenManager.apiOrigin, tokenManager.basePath, operation, args);
 
+  // Read and validate local upload bytes before authentication or any other
+  // outbound activity. The captured bytes are reused when a 401 requires a
+  // second request, while each attempt still gets a fresh FormData wrapper.
+  const acceptsFile =
+    operation.parameters.some((parameter) => parameter.in === "formData" && parameter.type === "file") ||
+    MULTIPART_FILE_FIELD[operation.id] !== undefined;
+  const preparedUpload = args.file && acceptsFile ? readUploadFile(args.file.path, tokenManager.uploadPolicy) : undefined;
+  // Validate body construction (including recovered required file parts) before
+  // asking the deployment for a token.
+  buildRequestBody(operation, args, tokenManager.uploadPolicy, preparedUpload);
+
   const attempt = async (accessToken: string): Promise<Response> => {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
       Accept: acceptHeaderFor(operation),
     };
     // Rebuild the body per attempt: FormData streams can't be reused after a send.
-    const { body, contentType } = buildRequestBody(operation, args);
+    const { body, contentType } = buildRequestBody(operation, args, tokenManager.uploadPolicy, preparedUpload);
     if (contentType) headers["Content-Type"] = contentType;
 
     try {

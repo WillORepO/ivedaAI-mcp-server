@@ -3,8 +3,8 @@
  *
  * Every MCP client loads all tool descriptions up front, so their combined size
  * is spent out of the context budget on connect, whether or not a single tool is
- * called. The design note in the README explains why 315 operations were folded
- * into one tool per resource — 315 tools would overwhelm most clients — but that
+ * called. The design note in the README explains why 316 operations were folded
+ * into one tool per resource — 316 tools would overwhelm most clients — but that
  * argument is about tool *count*. Nobody had measured the tokens, which is the
  * thing that actually gets consumed.
  *
@@ -18,11 +18,15 @@
  *
  * Usage: npm run measure  (no deployment or credentials needed)
  */
+import { z } from "zod";
+import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
 import { loadSwagger, tagToToolName } from "../src/swagger.js";
 import { describeTag } from "../src/toolDocs.js";
 import { computeRoundTripGaps, roundTripWarning } from "../src/roundTrip.js";
 import { policyFromEnv, allowedOperations } from "../src/accessPolicy.js";
 import { lossyUpdateWarning } from "../src/partialUpdate.js";
+import { apiResponseOutput } from "../src/outputSchema.js";
+import { capabilityNote } from "../src/capabilityNotes.js";
 
 const ctx = loadSwagger();
 const gaps = computeRoundTripGaps(ctx.spec);
@@ -53,15 +57,39 @@ let warningChars = 0;
 let warnedOps = 0;
 let totalOps = 0;
 for (const group of ctx.tags) {
-  for (const op of group.operations) {
+  for (const op of allowedOperations(group.operations, policy)) {
     totalOps++;
-    const w = [lossyUpdateWarning(op.id), roundTripWarning(gaps[op.id], op.id)].filter(Boolean).join(" ");
+    const w = [capabilityNote(op.id), lossyUpdateWarning(op.id), roundTripWarning(gaps[op.id], op.id)]
+      .filter(Boolean)
+      .join(" ");
     if (w) {
       warningChars += w.length;
       warnedOps++;
     }
   }
 }
+
+/**
+ * What the declared result shape costs, which descriptions alone no longer say.
+ *
+ * `outputSchema` is sent with every tool definition, so it is spent on connect
+ * exactly like a description is — and because all 63 generated tools share one
+ * envelope, the same JSON Schema is transmitted 63 times. That made it the
+ * single easiest thing in this server to overspend on without noticing: the
+ * first version of `apiResponseOutput` spelled out the innards of
+ * `omittedFields` and cost 1,143 characters a tool, 72,009 in total, which is
+ * more than every tool description put together.
+ *
+ * Converted here through the same call `McpServer` makes, with the same options,
+ * so this is the real transmitted size rather than an estimate of it. An SDK
+ * upgrade that moves this module should fail the build loudly — that is
+ * preferable to this quietly reporting a number that is no longer what a client
+ * receives.
+ */
+const outputSchemaChars = JSON.stringify(
+  toJsonSchemaCompat(z.object(apiResponseOutput), { strictUnions: true, pipeStrategy: "output" })
+).length;
+const outputSchemaTotal = outputSchemaChars * perTool.length;
 
 perTool.sort((a, b) => b.chars - a.chars);
 const median = perTool[Math.floor(perTool.length / 2)].chars;
@@ -83,6 +111,12 @@ console.log(
 );
 console.log(`  mean per tool:    ${fmt(Math.round(total / perTool.length))} chars`);
 console.log(`  median per tool:  ${fmt(median)} chars`);
+console.log(
+  `\n  output schemas:   ${fmt(outputSchemaTotal)} chars  (~${fmt(approxTokens(outputSchemaTotal))} tokens)` +
+    `  — ${fmt(outputSchemaChars)} chars x ${perTool.length} tools, the same envelope each time`
+);
+console.log(`  descriptions + schemas: ${fmt(total + outputSchemaTotal)} chars  ` +
+  `(~${fmt(approxTokens(total + outputSchemaTotal))} tokens)`);
 console.log(`\n  live-testing cautions: ${fmt(warningChars)} chars (~${fmt(approxTokens(warningChars))} tokens), ` +
   `${((warningChars / total) * 100).toFixed(1)}% of the total, across ${warnedOps} of ${totalOps} operations`);
 
@@ -96,9 +130,9 @@ for (const t of perTool.slice(0, 10)) {
 
 // A rough sense of what fraction of a session's budget this claims, since that is
 // the decision the number actually informs.
-console.log(`\n  as a share of a client's context window:`);
+console.log(`\n  as a share of a client's context window (descriptions + output schemas):`);
 for (const window of [32_000, 128_000, 200_000, 1_000_000]) {
-  const pct = (approxTokens(total) / window) * 100;
+  const pct = (approxTokens(total + outputSchemaTotal) / window) * 100;
   console.log(`    ${fmt(window).padStart(9)} tokens: ${pct.toFixed(1)}%`);
 }
 console.log(

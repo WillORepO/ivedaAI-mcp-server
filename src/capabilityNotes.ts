@@ -56,8 +56,23 @@
  * silently restarts the ones that already were. The job list is the only place
  * the restart is visible.
  *
- * There is a third failure, found by running into it rather than by looking for
- * it. Activation is licence-capped, and at the cap it answers:
+ * `DELETE /api/cameras/{cameraId}` is here for the sharpest version of the same
+ * problem: a call that does nothing and reports it the same way as a call that
+ * worked. Deleting an active camera is ignored, and the two responses are
+ * byte-identical:
+ *
+ *     idle   -> 202, content-length 0, body null   ... gone ~2s later
+ *     active -> 202, content-length 0, body null   ... still Processing at 41s
+ *
+ * There is no header, no body, and no status to tell them apart, so "remove
+ * these cameras" reports success and leaves the running ones in place. It took
+ * three attempts to establish: the first observation was tangled up with
+ * deactivating in between, the second trial deleted a camera that had not
+ * finished activating and so tested nothing, and only the third — waiting for
+ * "Processing", then one delete and no further calls — was clean.
+ *
+ * There is a third activation failure too, found by running into it rather than
+ * by looking for it. Activation is licence-capped, and at the cap it answers:
  *
  *     400 InvalidParameterException, errorCode 305
  *     "Number of active cameras has reached the maximum allowed. You can
@@ -95,6 +110,15 @@ export const CAPABILITY_NOTES: Record<string, string> = {
     'NOTE: isActivate filters on whether a camera is actively processing. The camera record carries no ' +
     'activation field, so "status" ("Processing" when active, "Idle" when not) is the per-record signal. ' +
     "To change it, use POST /api/cameras/{cameraId}/jobs with activate=true|false.",
+
+  "DELETE /api/cameras/{cameraId}":
+    "NOTE: deleting a camera that is currently active does nothing at all, and the response does not say so — " +
+    'an ignored delete and a real one both answer 202 with an empty body. Measured: an "Idle" camera was gone ' +
+    'about 2 seconds later, a "Processing" one was still there, still Processing, after 41. Deactivate first ' +
+    "with POST /api/cameras/{cameraId}/jobs?activate=false, then poll GET /api/cameras/{cameraId} until its " +
+    'status is "Idle" before calling this DELETE. Deletion is asynchronous too: poll that GET until it answers ' +
+    "404 Not Found rather than trusting the 202 — it is 202 Accepted, not 204, so it promises nothing about " +
+    "having happened.",
 
   "PUT /api/jobs":
     "NOTE: this takes no job id and no camera filter — see the operation list for POST /api/jobs/{cameraId}, " +

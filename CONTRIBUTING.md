@@ -17,6 +17,7 @@ Node 20.18.1 is the floor — `undici` 7 declares it, so the package cannot run 
 npm run typecheck   # covers src/, test/ and scripts/, which `build` does not
 npm test
 npm run docs        # regenerate docs/TOOLS.md if you changed tool descriptions
+npm run verify:evals
 ```
 
 `npm run build` only compiles `src/` — that is the shipped artefact and its scope should stay that
@@ -24,7 +25,8 @@ way. `typecheck` is what covers everything else.
 
 ## Regenerating the tool reference
 
-`docs/TOOLS.md` is generated. Run `npm run docs` and commit the result; CI does not do it for you.
+`docs/TOOLS.md` is generated. Run `npm run docs` and commit the result; CI regenerates it and fails
+with the diff if it is stale.
 
 ## Tests
 
@@ -32,16 +34,22 @@ way. `typecheck` is what covers everything else.
 npm test
 ```
 
-Runs a vitest suite: unit tests for URL building, query encoding, and argument validation, plus
-integration tests against a local mock server covering the token flow, 401 re-auth retry,
-timeouts, streaming-response truncation, optional-file multipart operations, and response-header
-filtering. The CRUD-probe tests (below) also run here against a mock, including fault-injected
-cases — a `DELETE` that reports success without deleting, an update that fails mid-lifecycle — so
-the probe is verified to actually catch failures, not just to pass.
+Runs a vitest suite: unit tests for URL building, pagination, output contracts, upload confinement,
+query encoding, and argument validation, plus integration tests against a local mock server covering
+the token flow, retries, timeouts, streaming-response truncation, multipart operations, and
+response-header filtering. MCP tests spawn the real server over stdio and verify its transmitted
+tool definitions and structured results.
 
 The suite needs no credentials and no deployment: the integration and MCP tests bring up their own
 mock HTTP server, and `test/mcp.test.ts` spawns the real server over stdio against it, so a
 mis-wired tool surface fails here rather than in front of a user.
+
+### Evaluations
+
+`evaluations/tool-navigation.xml` asks whether a model can navigate the 63 tools and 316 operations
+using only their descriptions. Its ten answers are fixed by the bundled spec, so
+`npm run verify:evals` checks them without credentials or a deployment. CI runs that check. See
+[`evaluations/README.md`](evaluations/README.md) for model-facing execution and extension guidance.
 
 ### Live-deployment probes
 

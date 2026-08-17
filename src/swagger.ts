@@ -50,6 +50,31 @@ export interface SwaggerContext {
 
 const HTTP_METHODS = ["get", "post", "put", "delete", "patch", "options", "head"];
 
+/**
+ * Parameter names where the generated document disagrees with a live 10.0 server.
+ *
+ * Keep this evidence-backed: accepting a name the handler ignores is worse than
+ * exposing no pagination control because it makes a repeated first page look
+ * like a valid continuation. On 2026-08-16, GET /api/lineSets with the declared
+ * pageNumber/pageSize pair returned the same default page (14 records, page 0,
+ * size 20) for values 0 and 1. The undeclared page/size pair returned one record
+ * at pages 0 and 1, with distinct record fingerprints and matching page metadata.
+ */
+const CONFIRMED_QUERY_PARAMETER_NAMES: Record<string, Record<string, string>> = {
+  "GET /api/lineSets": { pageNumber: "page", pageSize: "size" },
+};
+
+function correctedParameters(id: string, parameters: ParamDef[], useBundledFindings: boolean): ParamDef[] {
+  if (!useBundledFindings) return parameters;
+  const names = CONFIRMED_QUERY_PARAMETER_NAMES[id];
+  if (!names) return parameters;
+  return parameters.map((parameter) =>
+    parameter.in === "query" && names[parameter.name]
+      ? { ...parameter, name: names[parameter.name] }
+      : parameter
+  );
+}
+
 function loadRawSpec(): any {
   const path = process.env.IVEDAAI_SWAGGER_PATH ?? join(__dirname, "..", "resources", "openapi.json");
   const raw = readFileSync(path, "utf8");
@@ -297,6 +322,9 @@ function buildOperationId(method: string, path: string): string {
  * `resources/swagger-9.3.json` is exactly what it is for.
  */
 export function loadSwagger(): SwaggerContext {
+  // Live corrections describe the server that produced the bundled document.
+  // An operator-supplied spec is authoritative for its own deployment.
+  const useBundledFindings = process.env.IVEDAAI_SWAGGER_PATH === undefined;
   const raw = loadRawSpec();
   if (typeof raw.openapi !== "string") {
     throw new Error(
@@ -348,6 +376,7 @@ export function loadSwagger(): SwaggerContext {
       const tag: string = (op.tags && op.tags[0]) || "Untagged";
       const id = buildOperationId(method, path);
       const { params: bodyParams, consumes } = v3RequestBodyParams(op.requestBody);
+      const parameters = [...(op.parameters ?? []).map(flattenV3Parameter), ...bodyParams];
       const operation: Operation = {
         id,
         method: method.toUpperCase(),
@@ -356,7 +385,7 @@ export function loadSwagger(): SwaggerContext {
         summary: op.summary,
         description: op.description,
         tag,
-        parameters: [...(op.parameters ?? []).map(flattenV3Parameter), ...bodyParams],
+        parameters: correctedParameters(id, parameters, useBundledFindings),
         consumes: consumes.length ? consumes : undefined,
         // undefined rather than [] when nothing meaningful is declared, so
         // `acceptHeaderFor`'s "undeclared" branch fires — see v3Produces.

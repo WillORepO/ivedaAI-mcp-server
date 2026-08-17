@@ -48,6 +48,9 @@ function makeConfig(overrides: Partial<IvedaAIConfig> = {}): IvedaAIConfig {
     inlineImages: false,
     maxImageBytes: 4 * 1024 * 1024,
     redactSecrets: true,
+    // Explicitly permissive for mock fixtures in the temp directory. Production
+    // defaults to disabled unless a root or escape hatch is configured.
+    uploadPolicy: { allowUnconfined: true, maxBytes: 64 * 1024 * 1024 },
     ...overrides,
   };
 }
@@ -412,6 +415,53 @@ describe("executeOperation against a mock server", () => {
     const result = await executeOperation(tm, mockAlertRuleOp, {});
     const body = result.body as { trigger: string };
     expect(body.trigger).toContain("super-secret-value");
+  });
+
+  /**
+   * That the guard is actually wired into the upload path, rather than merely
+   * existing. `uploadPath.ts` is unit-tested on its own; this asserts a real
+   * `executeOperation` refuses before it opens the file, on the one operation
+   * shape that carries one.
+   */
+  it("refuses to upload a credential-shaped file, without calling the deployment", async () => {
+    const key = join(tmpdir(), `ivedaai-upload-guard-${process.pid}.pem`);
+    writeFileSync(key, "-----BEGIN PRIVATE KEY-----");
+    const apiCallsBefore = apiCallCount;
+    const tokenRequestsBefore = tokenRequests;
+    try {
+      const tm = new TokenManager(makeConfig());
+      await expect(
+        executeOperation(tm, findOp("POST /api/detection/colors"), {
+          file: { path: key, contentType: "image/jpeg" },
+          body: [],
+        })
+      ).rejects.toThrow(/\.pem/);
+      // Local validation must happen before authentication: nothing leaves the machine.
+      expect(apiCallCount).toBe(apiCallsBefore);
+      expect(tokenRequests).toBe(tokenRequestsBefore);
+    } finally {
+      rmSync(key, { force: true });
+    }
+  });
+
+  it("refuses ordinary local files when neither an upload root nor the escape hatch is configured", async () => {
+    const image = join(tmpdir(), `ivedaai-upload-disabled-${process.pid}.jpg`);
+    writeFileSync(image, "not-a-real-image");
+    const apiCallsBefore = apiCallCount;
+    const tokenRequestsBefore = tokenRequests;
+    try {
+      const tm = new TokenManager(makeConfig({ uploadPolicy: { maxBytes: 64 * 1024 * 1024 } }));
+      await expect(
+        executeOperation(tm, findOp("POST /api/detection/colors"), {
+          file: { path: image, contentType: "image/jpeg" },
+          body: [],
+        })
+      ).rejects.toThrow(/IVEDAAI_UPLOAD_ROOT/);
+      expect(apiCallCount).toBe(apiCallsBefore);
+      expect(tokenRequests).toBe(tokenRequestsBefore);
+    } finally {
+      rmSync(image, { force: true });
+    }
   });
 
   it("sends both the file part and the body-declared JSON param for multipart+body ops", async () => {

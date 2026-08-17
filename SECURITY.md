@@ -39,9 +39,42 @@ deployment shape (on-prem, TLS or plain HTTP), and enough detail to reproduce.
 | default | why |
 | --- | --- |
 | Writes are **enabled** | The server's purpose is driving the API. Set `IVEDAAI_READ_ONLY=true` for a read-only deployment; it withholds every non-GET from the tool list rather than merely refusing it. |
-| Collection-emptying deletes are **withheld** | Twenty DELETEs take no id in the path, so the only subject would come from an optional request body — and what the API does with that body omitted is unspecified. `IVEDAAI_ALLOW_COLLECTION_DELETE=true` permits them. |
+| Collection-emptying deletes are **withheld** | Twenty-one DELETEs take no id in the path, so the only subject would come from an optional request body — and what the API does with that body omitted is unspecified. `IVEDAAI_ALLOW_COLLECTION_DELETE=true` permits them. |
 | Credential-shaped response fields are **redacted** | Keys, secrets and passphrases are masked in tool output. `IVEDAAI_REDACT_SECRETS=false` disables it. |
 | Insecure transport **warns** | The server writes a warning to stderr when `IVEDAAI_BASE_URL` is plain HTTP to a non-loopback host, or when TLS verification is disabled. |
+| Local-file uploads are **disabled** | Set `IVEDAAI_UPLOAD_ROOT` to approve one directory. `IVEDAAI_ALLOW_UNCONFINED_UPLOADS=true` is an explicit compatibility escape hatch, not the default. |
+
+## File uploads
+
+25 operations accept a file, and the path for one arrives as a tool argument — which means it is
+chosen by a model, from whatever is in its context. That context includes text this server itself
+returned: camera names, alert rule descriptions, watchlist entries, all of it typed by anyone who
+can write to your deployment. So "upload the file at this path" is reachable from data, and what it
+does is read a local file and POST it to the IvedaAI server.
+
+The file that matters most here is your MCP client's configuration, because on a normal install of
+this server it holds `IVEDAAI_PASSWORD` in clear text.
+
+**`IVEDAAI_UPLOAD_ROOT` is the control.** Local-file uploads are disabled until it names the directory
+your uploads live in. Nothing outside that directory can be read, whatever path is requested —
+symlinks out of the root included. A root configured through a symlink is supported; both the
+configured spelling and its canonical target are checked.
+
+`IVEDAAI_ALLOW_UNCONFINED_UPLOADS=true` exists only as an explicit compatibility escape hatch. In
+that mode the server still refuses:
+
+- paths inside `.ssh`, `.aws`, `.gnupg`, `.kube`, `.docker`, `.azure` or `gcloud`
+- files named `.env`, `.npmrc`, `.netrc`, `.pgpass`, `credentials`, `id_rsa` and similar, or
+  `claude_desktop_config.json`
+- anything ending `.pem`, `.key`, `.pfx`, `.p12`, `.jks`, `.keystore`, `.ppk`
+- anything that is not a regular file or lives on a virtual kernel filesystem such as `/proc`
+- anything larger than `IVEDAAI_MAX_UPLOAD_BYTES` (64 MB default)
+
+That list covers where credentials are kept by convention. It is a backstop, not a boundary, and it
+is not offered as one — a secret stored anywhere else passes it. File contents are read through the
+vetted descriptor and stop at the byte cap, so a final-component symlink swap or growing file cannot
+bypass the check.
+Prefer a root; do not enable the escape hatch unless compatibility requires it.
 
 ## Credentials
 

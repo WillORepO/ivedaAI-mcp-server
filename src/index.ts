@@ -17,6 +17,8 @@ import { lossyUpdateError } from "./partialUpdate.js";
 import { policyFromEnv, refusalReason, allowedOperations } from "./accessPolicy.js";
 import { computeRoundTripGaps, fieldsAtRisk, hasRisk, roundTripNote } from "./roundTrip.js";
 import { buildCameraBody, type CameraSpec } from "./cameraOnboarding.js";
+import { apiResponseOutput, schemaLookupOutput, alertIntegrationOutput, addCameraOutput } from "./outputSchema.js";
+import { paginatedOperations, paginationRequest, summarisePage, pageNote } from "./pagination.js";
 
 // --help and --version, handled before anything else runs.
 //
@@ -65,8 +67,12 @@ Optional:
                                     Permit DELETEs that name no record
   IVEDAAI_REDACT_SECRETS=false      Stop masking credential-shaped fields
   IVEDAAI_ALLOW_INSECURE_TLS=true   Skip TLS verification (self-signed certs)
+  IVEDAAI_UPLOAD_ROOT=<dir>         Enable uploads confined to this directory
+  IVEDAAI_ALLOW_UNCONFINED_UPLOADS=true
+                                     Compatibility escape hatch; prefer a root
+  IVEDAAI_MAX_UPLOAD_BYTES=67108864 Largest file this server will upload
   IVEDAAI_TIMEOUT_MS=30000          Per-request timeout
-  IVEDAAI_MAX_RESPONSE_BYTES=2000000
+  IVEDAAI_MAX_RESPONSE_BYTES=28672  Response bytes read before truncating
   IVEDAAI_CLIENT_ID / IVEDAAI_CLIENT_SECRET
                                     Client credentials on the token request
   IVEDAAI_SWAGGER_PATH=<path>       Use a different OpenAPI 3 document
@@ -115,7 +121,7 @@ const server = new McpServer(
     // This server's version, not the API's. See SERVER_VERSION.
     version: SERVER_VERSION,
   },
-  // Said once at initialize instead of on all 62 tool descriptions. Clients are
+  // Said once at initialize instead of on all 63 generated tool descriptions. Clients are
   // not required to surface this, which is why nothing depends on it alone —
   // hence the shorter note on each tool description too.
   {
@@ -138,6 +144,21 @@ const ENFORCE_LOSSY_UPDATE_GUARD = process.env.IVEDAAI_ALLOW_LOSSY_UPDATE !== "t
 /** Derived once at startup: update ops whose fields no read endpoint returns. */
 const roundTripGaps = computeRoundTripGaps(ctx.spec);
 
+/** Likewise: the operations whose success response is a Spring page. */
+const paginated = paginatedOperations(ctx.spec);
+
+/**
+ * The methods RFC 9110 defines as idempotent — repeating the request has the
+ * same effect on the server as making it once.
+ *
+ * PATCH is deliberately absent. RFC 5789 declines to guarantee it, and while
+ * every PATCH this project has live-tested does behave idempotently, the
+ * annotation is a promise to a client about calls nobody has run yet. As it
+ * happens the caution is free: no tag here consists of PATCH and idempotent
+ * methods alone, so admitting PATCH would not currently move a single tool.
+ */
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "OPTIONS", "PUT", "DELETE"]);
+
 const seenNames = new Set<string>();
 
 for (const group of ctx.tags) {
@@ -156,6 +177,11 @@ for (const group of ctx.tags) {
   const operationIds = operations.map((o) => o.id) as [string, ...string[]];
   const isReadOnly = operations.every((o) => o.method === "GET");
   const hasDestructive = operations.some((o) => o.method === "DELETE");
+  // `every`, for the same reason `hasDestructive` is `some`: these tools
+  // dispatch to many operations behind one annotation, so a per-tool claim is
+  // only true if it holds for every operation the tool will accept. One POST in
+  // a tag is enough to make "repeating this changes nothing" a lie.
+  const isIdempotent = operations.every((o) => IDEMPOTENT_METHODS.has(o.method));
 
   server.registerTool(
     toolName,
@@ -174,7 +200,22 @@ for (const group of ctx.tags) {
       annotations: {
         readOnlyHint: isReadOnly,
         destructiveHint: hasDestructive,
-        openWorldHint: false,
+        idempotentHint: isIdempotent,
+        // These reach a remote deployment whose contents change without this
+        // server's involvement. The spec's closed-world example is a memory
+        // tool, whose entire universe the client already knows; a video
+        // analytics install is the opposite of that.
+        //
+        // This used to say `false` while the two hand-written tools said
+        // `true`, which was drift rather than a distinction — nothing recorded a
+        // reason for either, and the same operations are reachable both ways.
+        // `ivedaai_alert_integration` wraps POST /api/alertTriggers, which
+        // `ivedaai_alert_trigger` also offers; `ivedaai_add_camera` wraps
+        // POST /api/cameras and the activation job, both of which
+        // `ivedaai_camera` also offers. A client could not act on an annotation
+        // that answers differently depending on which door the same call goes
+        // through.
+        openWorldHint: true,
       },
       inputSchema: {
         operation: z.enum(operationIds).describe("Which API operation to call, from the list in this tool's description."),
@@ -193,6 +234,10 @@ for (const group of ctx.tags) {
           .optional()
           .describe("Local file to upload, for operations that accept a file."),
       },
+      // Every operation on every tag answers with the same envelope, so one
+      // declared shape covers all 316 of them. See src/outputSchema.ts for why
+      // it carries no field documentation.
+      outputSchema: apiResponseOutput,
     },
     async ({ operation, path, query, body, file }) => {
       const op = operations.find((o) => o.id === operation);
@@ -217,6 +262,15 @@ for (const group of ctx.tags) {
       try {
         const result = await executeOperation(tokenManager, op, { path, query, body, file });
 
+        // Spring's page fields, reduced to whether there is more and what to
+        // send for it. Added beside `body` rather than into it, so what a caller
+        // inspects is still the response the deployment actually sent.
+        const summary = paginated.has(op.id) ? summarisePage(result.body) : undefined;
+        const note = summary ? pageNote(summary, paginationRequest(ctx.spec, op)) : undefined;
+        const paged = summary
+          ? { ...result, pagination: { ...summary, ...(note ? { note } : {}) } }
+          : result;
+
         // Fields this update omits that it could not simply read back — either
         // recoverable from another key in the response, or with no known source
         // at all. Reported only when the body actually left some out; a call
@@ -226,7 +280,7 @@ for (const group of ctx.tags) {
         const payload =
           gap && hasRisk(risk)
             ? {
-                ...result,
+                ...paged,
                 omittedFields: {
                   readableElsewhere: risk.recoverable,
                   // Without this a caller reading the structured payload sees two
@@ -239,7 +293,7 @@ for (const group of ctx.tags) {
                   note: roundTripNote(gap, risk, op.id),
                 },
               }
-            : result;
+            : paged;
 
         // The base64 is stripped from the JSON before it is stringified, and
         // sent once as viewable image content instead. Leaving it on the
@@ -252,6 +306,9 @@ for (const group of ctx.tags) {
             { type: "text", text: JSON.stringify(textPayload, null, 2) },
             ...(image ? [{ type: "image" as const, data: image.base64, mimeType: image.mimeType }] : []),
           ],
+          // The same object the text block serialises, so a client reading one
+          // and a client reading the other cannot be told different things.
+          structuredContent: textPayload,
           isError: result.status >= 400,
         };
       } catch (err) {
@@ -271,16 +328,23 @@ server.registerTool(
     description:
       "Looks up the full JSON schema for a named IvedaAI API definition (e.g. \"CameraRequest\"). " +
       "Use this when a tool's body schema summary is truncated or you need the exact shape of a nested field. " +
-      "Call ivedaai_get_schema with no name to list all available definition names.",
+      "Call ivedaai_get_schema with no name to list all available definition names. " +
+      "Returns {name, schema} for a lookup, or {names} for the listing.",
     inputSchema: {
       name: z.string().optional().describe("Definition name, e.g. \"CameraRequest\". Omit to list all names."),
     },
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    outputSchema: schemaLookupOutput,
+    // The one genuinely closed-world tool here: it answers out of the bundled
+    // `resources/openapi.json` and opens no connection at all, so its universe
+    // really is fixed and shipped alongside it.
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   async ({ name }) => {
     if (!name) {
-      const names = Object.keys(schemaDefinitions(ctx.spec)).sort();
-      return { content: [{ type: "text", text: JSON.stringify(names, null, 2) }] };
+      // Wrapped rather than returned as a bare array: structuredContent has to
+      // be an object. See src/outputSchema.ts.
+      const payload = { names: Object.keys(schemaDefinitions(ctx.spec)).sort() };
+      return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }], structuredContent: payload };
     }
     const resolved = resolveRef(ctx.spec, schemaRef(name));
     if (!resolved) {
@@ -289,7 +353,8 @@ server.registerTool(
         isError: true,
       };
     }
-    return { content: [{ type: "text", text: JSON.stringify(resolved, null, 2) }] };
+    const payload = { name, schema: resolved };
+    return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }], structuredContent: payload };
   }
 );
 
@@ -328,7 +393,7 @@ if (ACCESS_POLICY.readOnly) {
         "(generic HTTP webhooks, named VMS/PSIM platforms, email, Immix, mobile push). The raw API schema here is " +
         "deeply nested and has undocumented gotchas (see below), confirmed by live testing rather than the spec alone.\n\n" +
         "Actions:\n" +
-        "  list_types — no API call; returns this same type/testability reference as JSON.\n" +
+        "  list_types — no API call; returns this same type/testability reference as JSON, under \"types\".\n" +
         "  test — builds the correct trigger payload for `type`+`config` and calls POST /api/alertTriggers to live-test " +
         "it, returning a plain-language verdict (success / unsupported / invalid_config / connection_failed). Only " +
         "'request', 'mobile', and the 13 VMS types are testable — 'mail'/'immix' always return 'unsupported' " +
@@ -355,7 +420,12 @@ if (ACCESS_POLICY.readOnly) {
         "  mobile: { enableCriticalAlertNotice? } (all fields optional)\n\n" +
         "Types (grouped; call list_types for what each one is):\n" +
         describeTriggerTypesCompact(),
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+      // Not idempotent, on account of "test": each call asks the deployment to
+      // open a real connection to the configured webhook or VMS, so calling it
+      // twice delivers two requests to whatever is on the other end. "apply"
+      // and "list_types" would both qualify on their own; the annotation covers
+      // the tool, so the action that does not is the one that decides it.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       inputSchema: {
         action: z.enum(["list_types", "test", "apply"]).describe("Which action to perform."),
         type: z
@@ -369,10 +439,15 @@ if (ACCESS_POLICY.readOnly) {
           .optional()
           .describe("Override the connection-test timeout in ms (default 60000). Raise this for slow VMS integrations."),
       },
+      outputSchema: alertIntegrationOutput,
     },
     async ({ action, type, config, alertRuleId, timeoutMs }) => {
       if (action === "list_types") {
-        return { content: [{ type: "text", text: JSON.stringify(TRIGGER_TYPES, null, 2) }] };
+        // Under a "types" key rather than bare, for the same reason as
+        // ivedaai_get_schema: structuredContent must be an object, and one
+        // declared shape has to cover all three actions.
+        const payload = { types: TRIGGER_TYPES };
+        return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }], structuredContent: payload };
       }
 
       if (!type) {
@@ -401,13 +476,10 @@ if (ACCESS_POLICY.readOnly) {
             timeoutMs ?? DEFAULT_TRIGGER_TEST_TIMEOUT_MS
           );
           const interpretation = interpretTestResult(result.status, result.body);
+          const payload = { ...interpretation, httpStatus: result.status, raw: result.body };
           return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({ ...interpretation, httpStatus: result.status, raw: result.body }, null, 2),
-              },
-            ],
+            content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+            structuredContent: payload,
             isError: result.status >= 400,
           };
         } catch (err) {
@@ -473,30 +545,23 @@ if (ACCESS_POLICY.readOnly) {
         }
 
         const result = await executeOperation(tokenManager, patchAlertRuleOp, { path: { alertRuleId }, body: merged.body });
+        const payload = {
+          ...result,
+          preservation: {
+            carriedForward: merged.carriedForward,
+            unrecoverable: merged.unrecoverable,
+            note:
+              `Fields under "carriedForward" were read from the rule and re-sent. Fields under ` +
+              `"unrecoverable" are accepted by PATCH /api/alertRules/{alertRuleId} but have no known ` +
+              `location in any read, so no client can carry them through an update. That is not a loss ` +
+              `here: this endpoint has been live-tested and merges, leaving omitted fields alone, so the ` +
+              `rest of the rule survives this call. Re-sending what could be read is precaution against a ` +
+              `future change in that behaviour, not repair of a known one.`,
+          },
+        };
         return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  ...result,
-                  preservation: {
-                    carriedForward: merged.carriedForward,
-                    unrecoverable: merged.unrecoverable,
-                    note:
-                      `Fields under "carriedForward" were read from the rule and re-sent. Fields under ` +
-                      `"unrecoverable" are accepted by PATCH /api/alertRules/{alertRuleId} but have no known ` +
-                      `location in any read, so no client can carry them through an update. That is not a loss ` +
-                      `here: this endpoint has been live-tested and merges, leaving omitted fields alone, so the ` +
-                      `rest of the rule survives this call. Re-sending what could be read is precaution against a ` +
-                      `future change in that behaviour, not repair of a known one.`,
-                  },
-                },
-                null,
-                2
-              ),
-            },
-          ],
+          content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+          structuredContent: payload,
           isError: result.status >= 400,
         };
       } catch (err) {
@@ -547,7 +612,11 @@ if (ACCESS_POLICY.readOnly) {
         "problem with this tool. Check back later with the returned `jobId` via the ivedaai_job tool " +
         "(`GET /api/jobs/{jobId}`), or re-check the camera via ivedaai_camera (`GET /api/cameras/{cameraId}`) for " +
         "a populated `status` field, to confirm it actually connected.",
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+      // Creating a camera is the definition of not idempotent: a second call
+      // with the same arguments either makes a second record or fails on the
+      // duplicate name, and the partial-creation quirk this tool exists to
+      // detect makes "just call it again" actively unsafe.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       inputSchema: {
         cameras: z
           .array(
@@ -574,6 +643,7 @@ if (ACCESS_POLICY.readOnly) {
         ainvrId: z.number().optional().describe("Which ainvr/site to add cameras under. Defaults to the first ainvr found if omitted."),
         activate: z.boolean().optional().describe("Whether to start each camera's connection after creation (default true)."),
       },
+      outputSchema: addCameraOutput,
     },
     async ({ cameras, ainvrId, activate }) => {
       try {
@@ -655,8 +725,10 @@ if (ACCESS_POLICY.readOnly) {
           results.push(result);
         }
 
+        const payload = { ainvrId: resolvedAinvrId, results };
         return {
-          content: [{ type: "text", text: JSON.stringify({ ainvrId: resolvedAinvrId, results }, null, 2) }],
+          content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+          structuredContent: payload,
           isError: anyFailed,
         };
       } catch (err) {

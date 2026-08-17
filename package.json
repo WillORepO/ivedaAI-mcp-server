@@ -17,7 +17,8 @@
     "test": "vitest run",
     "docs": "tsx scripts/generate-tool-docs.ts",
     "measure": "tsx scripts/measure-tool-size.ts",
-    "diff:spec": "tsx scripts/diff-spec.ts"
+    "diff:spec": "tsx scripts/diff-spec.ts",
+    "verify:evals": "tsx scripts/verify-evaluation.ts"
   },
   "repository": {
     "type": "git",

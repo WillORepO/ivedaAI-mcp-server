@@ -1918,8 +1918,8 @@ _No parameters._
 |---|---|---|---|---|
 | `ainvrIds` | query | no | integer | seperated ainvr ids with comma. |
 | `offset` | query | no | integer | |
-| `pageNumber` | query | no | integer | |
-| `pageSize` | query | no | integer | |
+| `page` | query | no | integer | |
+| `size` | query | no | integer | |
 | `paged` | query | no | boolean | |
 | `sort.sorted` | query | no | boolean | |
 | `sort.unsorted` | query | no | boolean | |
@@ -2677,6 +2677,8 @@ _No parameters._
 ## ivedaai_get_schema
 
 Looks up the full JSON schema for any named definition from the spec (e.g. `CameraRequest`). Call with no arguments to list all definition names. Use it when a body summary above is truncated or references a nested type like `Contour` or `Schedule`.
+
+Answers `{name, schema}` for a lookup and `{names}` for the listing — both wrapped rather than bare, because MCP requires `structuredContent` to be an object.
 
 ## ivedaai_alert_integration
 

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Ten questions a model must answer using only this MCP server.
+
+  Every answer is fixed by the bundled resources/openapi.json, so these run
+  against a server started with dummy credentials and never touch a deployment.
+  See README.md in this directory for why, and for what a live-data set would
+  need instead.
+
+  `npm run verify:evals` recomputes every answer from the bundled spec and fails
+  if one has drifted — run it after any spec upgrade.
+-->
+<evaluation>
+  <qa_pair>
+    <question>This system can report more kinds of alert than you are able to build a rule for. Compare the set of alert categories that can appear on an alert the system has raised against the set accepted when defining a new rule. How many categories can be reported but cannot be requested? Answer with a number and nothing else.</question>
+    <answer>12</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Registering a camera requires supplying the outline of the region to be analysed. Starting from the schema for a camera-creation request, follow that field's declared type down through the definitions until you reach the object that represents a single coordinate pair. Give the exact name of that definition. Note that more than one similarly named definition exists, so follow the references rather than guessing from the names.</question>
+    <answer>VoPoint</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>This server groups the API into one tool per resource. Which single tool offers more distinct operations than any other? Answer with the tool name exactly as the server reports it.</question>
+    <answer>ivedaai_face_target</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Alerts can be routed onward to external systems by several different mechanisms, and the server can attempt a live connection check for some of them but not all. How many of the available mechanisms support such a check? Answer with a number and nothing else.</question>
+    <answer>15</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Exactly two of the onward-routing mechanisms cannot have their connection verified by the system. Both belong to the same grouping. What is the name of that grouping? Answer with the single word the server uses for it.</question>
+    <answer>mail</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Routing alerts to a named third-party video management platform is configured through one dedicated schema shared by all such platforms. How many distinct fields does that schema accept? Answer with a number and nothing else.</question>
+    <answer>19</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Creating the record for a camera is not on its own enough for it to begin streaming; a further call against that camera is needed to allocate processing and start it. That call is controlled by a single query parameter. Name that parameter.</question>
+    <answer>activate</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>A request for a list of records comes back holding fewer entries than the collection contains. Inside the response body the system itself returns, two separate fields carry counts. Give the exact name of the field holding the size of the entire collection, as opposed to the number of entries present in that one response.</question>
+    <answer>totalElements</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Is it possible, using only the operations this server exposes, to obtain a still picture of what one camera is currently looking at? Answer True or False and nothing else.</question>
+    <answer>True</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Adding a new recording appliance to the system requires six mandatory fields. Five of them are needed either to reach the appliance over the network or to authenticate against it. The sixth is only a human-facing label. Name that sixth field.</question>
+    <answer>name</answer>
+  </qa_pair>
+</evaluation>

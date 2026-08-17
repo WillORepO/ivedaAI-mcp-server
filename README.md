@@ -71,13 +71,16 @@ Only the first three are required.
 | `IVEDAAI_USERNAME` | — | IvedaAI account username. |
 | `IVEDAAI_PASSWORD` | — | IvedaAI account password. |
 | `IVEDAAI_READ_ONLY` | `false` | `true` serves reads only: non-GET operations are withheld from every tool, and the two write-oriented convenience tools are not registered. |
-| `IVEDAAI_ALLOW_COLLECTION_DELETE` | `false` | `true` permits the 20 DELETEs that name no record — see [Destructive operations](#destructive-operations). |
+| `IVEDAAI_ALLOW_COLLECTION_DELETE` | `false` | `true` permits the 21 DELETEs that name no record — see [Destructive operations](#destructive-operations). |
 | `IVEDAAI_REDACT_SECRETS` | `true` | Masks credential-shaped fields (keys, secrets, passphrases) in responses. `false` disables it. |
 | `IVEDAAI_ALLOW_INSECURE_TLS` | `false` | `true` skips TLS certificate verification, for on-prem deployments with self-signed certificates. Traffic stays encrypted; the certificate is not checked. Scoped to this server's requests, not process-wide. |
 | `IVEDAAI_TIMEOUT_MS` | `30000` | Per-request timeout, including reading the response body. Several IvedaAI endpoints block rather than failing fast when a camera is unreachable, so this matters. |
 | `IVEDAAI_MAX_RESPONSE_BYTES` | `28672` | Response body bytes read before truncating. Sized for what a model client can receive, not for what the API can send — bisected against a real client, 38 KB reached the model and 57 KB did not. Larger responses come back flagged `truncated` with a note saying to narrow the request. |
 | `IVEDAAI_INLINE_IMAGES` | `true` | Image responses are handed to the client as viewable images. `false` returns only a description (type, size, filename). |
 | `IVEDAAI_MAX_IMAGE_BYTES` | `4194304` | Separate budget for images, because a client charges for an image by its dimensions rather than the length of its base64 — holding them to the response cap above would truncate every one for no saving. An image larger than this is described rather than attached, since a partly-read image is a corrupt file, not a smaller one. |
+| `IVEDAAI_UPLOAD_ROOT` | — | Directory containing files the server may upload. Local-file uploads are disabled until this is set. Symlinks that escape the directory are refused. |
+| `IVEDAAI_ALLOW_UNCONFINED_UPLOADS` | `false` | Emergency compatibility escape hatch. `true` permits uploads outside a configured root, but still refuses conventional credential paths, known Linux virtual kernel filesystems such as procfs and sysfs, non-regular files, and oversized files. Prefer `IVEDAAI_UPLOAD_ROOT`. |
+| `IVEDAAI_MAX_UPLOAD_BYTES` | `67108864` | Maximum bytes read from an approved upload file. Reads are descriptor-bound and stop at the cap even if the file grows after validation. |
 | `IVEDAAI_CLIENT_ID` / `IVEDAAI_CLIENT_SECRET` | — | Sent as HTTP Basic auth on the token request, if your deployment requires client credentials. |
 | `IVEDAAI_ALLOW_LOSSY_UPDATE` | `false` | `true` disables the [lossy-update guard](docs/DESIGN.md#the-lossy-update-guard). Intended for the maintainers' CRUD probe; leave it unset. |
 | `IVEDAAI_SWAGGER_PATH` | bundled | Path to an alternate OpenAPI 3 document, if your deployment's API differs from the bundled one. |
@@ -92,7 +95,7 @@ limited: a client that starts a fresh process per request will hit it.
 
 ### Destructive operations
 
-Twenty of this API's DELETEs take no id in the path — `DELETE /api/cameras` versus
+Twenty-one of this API's DELETEs take no id in the path — `DELETE /api/cameras` versus
 `DELETE /api/cameras/{cameraId}`. The only subject would come from an optional request body, and what
 the API does when that body is omitted is not specified anywhere. One character of difference, and
 the mistake cannot be undone.

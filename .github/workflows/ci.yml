@@ -1,16 +1,10 @@
 # Runs the checks that need nothing but the repo.
 #
-# Every "tests pass, build clean" claim on this project's pull requests has so
-# far been someone's local run, stated as such in the PR body because there was
-# nothing else to point at. The unit, CRUD and integration suites need no
-# credentials and no deployment — the integration tests bring up their own mock
-# server — so there is no reason for that to stay true.
+# The unit, integration, and MCP-over-stdio suites need no credentials or
+# deployment; they bring up their own mock server.
 #
-# What this deliberately does NOT run: anything under `scripts/` that touches a
-# live deployment. Those are gated behind IVEDAAI_ALLOW_WRITE_PROBE and real
-# credentials, they create and delete records on a shared server, and a probe
-# firing on every push would be both destructive and rate-limited. They stay
-# manual, which is the point of the gate.
+# Live-deployment probes and their credentials remain in the private engineering
+# repository and are deliberately outside this public CI surface.
 name: CI
 
 on:
@@ -54,16 +48,28 @@ jobs:
       - run: npm run build
 
       # `build` only compiles src/ — that is the shipped artifact and its scope
-      # should stay that way. This covers scripts/ and test/ as well, which
-      # nothing else does: vitest never typechecks, and the probe scripts are the
-      # code that writes to live deployments.
+      # should stay that way. This covers scripts/ and test/ as well; vitest does
+      # not typecheck either one.
       - run: npm run typecheck
 
       - run: npm test
 
       # Cheap, needs no credentials, and renders every tool description across
-      # all 62 tags — so it fails if `describeTag` throws on some operation the
-      # unit tests do not construct. Prints the context budget into the log,
-      # which is the number the README and hand-off doc quote.
+      # all 63 tags — so it fails if `describeTag` throws on some operation the
+      # unit tests do not construct. Prints the context budget into the log.
       - name: Measure the tool-description budget
         run: npm run measure
+
+      # These answers are facts about the bundled spec. Fail if a spec upgrade
+      # makes the checked-in evaluation stale.
+      - name: Evaluation answers still match the spec
+        run: npm run verify:evals
+
+      # The tool reference is generated. Surface the exact diff if it drifts.
+      - name: Generated tool docs are up to date
+        run: |
+          npm run docs
+          if ! git diff --exit-code -- docs/TOOLS.md; then
+            echo "::error::docs/TOOLS.md is stale — run 'npm run docs' and commit the result"
+            exit 1
+          fi
