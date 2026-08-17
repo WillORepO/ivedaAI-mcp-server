@@ -33,7 +33,7 @@ An MCP client loads every tool definition up front, so their combined size comes
 budget whether or not a tool is ever called. The one-tool-per-resource decision above was made to
 keep the tool *count* manageable; the token cost was never measured. Measured, it started at
 ~82,000 characters on the 9.3 spec. On 10.0, with the default access policy, the descriptions are
-**66,570 characters, ~16,600 tokens** across 63 tools — or **29,769 characters, ~7,400 tokens**
+**66,928 characters, ~16,732 tokens** across 63 tools — or **30,127 characters, ~7,532 tokens**
 across 54 tools when `IVEDAAI_READ_ONLY=true`.
 
 Descriptions are no longer the whole bill. Each tool also declares an `outputSchema`, and because
@@ -43,15 +43,15 @@ for the generated tools.
 
 | Context window | Default | Read-only | Before the trims |
 | --- | --- | --- | --- |
-| 32,000 | **81%** | **48%** | 64% |
-| 128,000 | 20% | 12% | 16% |
-| 200,000 | 13% | 8% | 10% |
-| 1,000,000 | 3% | 2% | 2% |
+| 32,000 | **81.9%** | **48.9%** | 64% |
+| 128,000 | 20.5% | 12.2% | 16% |
+| 200,000 | 13.1% | 7.8% | 10% |
+| 1,000,000 | 2.6% | 1.6% | 2% |
 
 Read-only remains the cheapest way to shrink this — 54 tools and 129 operations instead of 63 and
-295 — but it no longer more than halves the bill. Withholding the writes takes 36,000 characters off
-the descriptions and only 5,300 off the schemas, because a read-only server still declares the same
-envelope on every tool it does offer. In read-only the schema is now the *larger* of the two: 29,769
+295 — but it no longer more than halves the bill. Withholding the writes takes about 36,800 characters off
+the descriptions and only 5,400 off the schemas, because a read-only server still declares the same
+envelope on every tool it does offer. In read-only the schema is now the *larger* of the two: 30,127
 characters of description against 32,454 of schema.
 
 Two things came out, neither of which a caller loses access to. Request bodies name their schema
@@ -67,7 +67,7 @@ At 200k this was always a reasonable price for covering 316 operations. At 32k t
 to unusable before the conversation started; it is now merely expensive.
 
 Of the description total, the capability and live-testing cautions this project added account for
-**13.1%** (~2,200 tokens across 21 of the 295 default-exposed operations) — a minority of the
+**13.5%** (~2,267 tokens across 23 of the 295 default-exposed operations) — a minority of the
 budget, but not free.
 
 The obvious lever is moving detail out of the descriptions and leaning on `ivedaai_get_schema`,

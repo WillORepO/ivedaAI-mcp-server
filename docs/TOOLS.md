@@ -513,6 +513,8 @@ _No parameters._
 | `groupNameContains` | query | no | string | Partial match string. |
 | `fetchCameraGroups` | query | no | boolean | Boolean. |
 
+> ⚠️ NOTE: isActivate filters on whether a camera is actively processing. The camera record carries no activation field, so "status" ("Processing" when active, "Idle" when not) is the per-record signal. To change it, use POST /api/cameras/{cameraId}/jobs with activate=true|false.
+
 #### `POST /api/cameras` — Create camera
 
 | Parameter | In | Required | Type | Notes |
@@ -521,11 +523,15 @@ _No parameters._
 
 **Body:** `{ account?:string, cameraType*:enum(App|External|Footage|General|Onvif|RecordedAnalytic|VideoSource), description?:string, detectionMode?:string, doRecording?:boolean, engineConfig?:EngineConfig, engineProfileId?:integer, externalMeta?:ExternalMeta, floorPlanAngle?:integer, floorPlanId?:string, floorPlanX?:number, floorPlanY?:number, frameRate?:number, gpuId?:integer, hwDecode?:boolean, ip?:string, latitude?:number, locationType?:enum(GPS_MAP|INDOOR_MAP|NONE), longitude?:number, manufacturer?:string, model?:string, name?:string, nvrChannel?:string, nvrId?:string, password?:string, plugins?:enum(AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine), port?:integer, protocol?:enum(Both|TCP|UDP), resolution?:string, roiContour?:VoContour[], schedule?:Schedule, streamUrl?:string }`
 
+> ⚠️ NOTE: the spec marks only "cameraType" required, and that is not enough — the API also rejects a body missing "engineProfileId", "roiContour", "doRecording" or "protocol", with a 400 naming them and no record created. Creating the record does not start the camera either; it stays Idle until activated. For onboarding a real camera prefer the ivedaai_add_camera tool, which supplies these and the other defaults, activates the camera, and cleans up after a partial create.
+
 #### `DELETE /api/cameras/{cameraId}` — Delete camera by id
 
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
 | `cameraId` | path | **yes** | integer | cameraId. |
+
+> ⚠️ NOTE: deleting a camera that is currently active does nothing at all, and the response does not say so — an ignored delete and a real one both answer 202 with an empty body. Measured: an "Idle" camera was gone about 2 seconds later, a "Processing" one was still there, still Processing, after 41. Deactivate first with POST /api/cameras/{cameraId}/jobs?activate=false, then poll GET /api/cameras/{cameraId} until its status is "Idle" before calling this DELETE. Deletion is asynchronous too: poll that GET until it answers 404 Not Found rather than trusting the 202 — it is 202 Accepted, not 204, so it promises nothing about having happened.
 
 #### `GET /api/cameras/{cameraId}` — Find camera by id
 
@@ -559,6 +565,8 @@ _No parameters._
 |---|---|---|---|---|
 | `cameraId` | path | **yes** | integer | cameraId. |
 | `activate` | query | **yes** | boolean | activate. |
+
+> ⚠️ NOTE: this is how a camera is activated and deactivated. activate=true starts analytics processing, activate=false stops it. The camera's "status" becomes "Processing" or "Idle" within about a second, and the deployment records an ACTIVATE/DEACTIVATE audit entry. There is no activation field on the camera record — read the current state from "status", or with GET /api/cameras?isActivate=true|false. The two directions do not behave alike, so check "status" before calling either: activate=true on a camera that is already active answers 200 but cancels its running job and starts a new one, which interrupts analytics; activate=false on a camera that is already idle answers 400 "Camera is not active". Both matter when setting several cameras at once. Activation is also capped by licence: once the deployment is at its limit, activate=true fails with 400 errorCode 305, "Number of active cameras has reached the maximum allowed" — a full deployment, not a bad request, so the fix is to deactivate another camera rather than to retry or to change the arguments.
 
 #### `GET /api/cameras/{cameraId}/rva-heatmap` — Get RVA heatmap
 
@@ -762,6 +770,8 @@ _No parameters._
 | `lineSetIds` | query | **yes** | integer | comma seperated integer. |
 | `types` | query | **yes** | string | comma seperated types. |
 
+> ⚠️ NOTE: types values must use top-level object-type keys returned by GET /api/types/{category}; do not send a nested synonym, line-set type, or counting direction such as IN/OUT.
+
 #### `GET /api/countings` — Counting history
 
 | Parameter | In | Required | Type | Notes |
@@ -771,6 +781,8 @@ _No parameters._
 | `lineSetIds` | query | **yes** | integer | comma seperated integer. |
 | `types` | query | **yes** | string | comma seperated types. |
 | `measure` | query | **yes** | string | measurement. — one of: Daily, Fifteen_Minutely, Five_Minutely, Hourly, Minutely, Monthly, Ten_Minutely, Thirty_Minutely, Twenty_Minutely, Weekly |
+
+> ⚠️ NOTE: types values must use top-level object-type keys returned by GET /api/types/{category}; do not send a nested synonym, line-set type, or counting direction such as IN/OUT.
 
 ## ivedaai_detection
 
@@ -1649,6 +1661,8 @@ _No parameters._
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
 | `action` | query | **yes** | string | action. — one of: CANCEL, SUSPEND |
+
+> ⚠️ NOTE: this takes no job id and no camera filter — see the operation list for POST /api/jobs/{cameraId}, which cancels one camera's job, before using this one.
 
 #### `POST /api/jobs/{cameraId}` — Cancel job by camera
 

@@ -1,5 +1,6 @@
 import { constants, readFileSync, writeFileSync, mkdtempSync, mkdirSync, realpathSync, symlinkSync, rmSync, openSync, renameSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,6 +51,10 @@ import { connectionFailureMessage } from "../src/netError.js";
 import { capabilityNote, CAPABILITY_NOTES } from "../src/capabilityNotes.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const testRequire = createRequire(import.meta.url);
+const TSX_CLI = join(dirname(testRequire.resolve("tsx/package.json")), "dist", "cli.mjs");
+const MEASURE_SCRIPT = fileURLToPath(new URL("../scripts/measure-tool-size.ts", import.meta.url));
+const BUNDLED_SPEC = fileURLToPath(new URL("../resources/openapi.json", import.meta.url));
 
 const ctx = loadSwagger();
 
@@ -128,6 +133,70 @@ describe("what the spec declares vs what the server accepts", () => {
     // Not all of them are the same pattern, so the rendering has to carry the
     // parameter's own rather than a single hardcoded one.
     expect(queryLine("GET /api/alerts")).toContain("start*:string(yyyy-MM-dd[ HH:mm:ss[Z]])");
+  });
+
+  it("tells counting callers where valid object types come from", () => {
+    for (const opId of ["GET /api/counting/dashboard", "GET /api/countings"]) {
+      const group = ctx.tags.find((candidate) => candidate.operations.some((operation) => operation.id === opId))!;
+      const block = describeTag(ctx.spec, group, undefined, ctx.useBundledFindings)
+        .split("\n\n")
+        .find((section) => section.startsWith(opId));
+      expect(block, opId).toContain("GET /api/types/{category}");
+      expect(block, opId).toContain("top-level object-type keys");
+    }
+  });
+
+  it("does not apply the bundled counting finding to an operator-supplied spec", () => {
+    const directory = mkdtempSync(join(tmpdir(), "ivedaai-alternate-counting-spec-"));
+    const alternate = join(directory, "openapi.json");
+    writeFileSync(alternate, readFileSync(join(__dirname, "..", "resources", "openapi.json")));
+    const previous = process.env.IVEDAAI_SWAGGER_PATH;
+    process.env.IVEDAAI_SWAGGER_PATH = alternate;
+
+    try {
+      const alternateContext = loadSwagger();
+      const group = alternateContext.tags.find((candidate) =>
+        candidate.operations.some((operation) => operation.id === "GET /api/countings")
+      )!;
+      expect(
+        describeTag(alternateContext.spec, group, undefined, alternateContext.useBundledFindings)
+      ).not.toContain("top-level object-type keys");
+      const allDescriptions = alternateContext.tags
+        .map((candidate) =>
+          describeTag(alternateContext.spec, candidate, undefined, alternateContext.useBundledFindings)
+        )
+        .join("\n");
+      expect(allDescriptions).not.toContain("CAUTION:");
+    } finally {
+      if (previous === undefined) delete process.env.IVEDAAI_SWAGGER_PATH;
+      else process.env.IVEDAAI_SWAGGER_PATH = previous;
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("does not count bundled cautions in an operator-supplied-spec measurement", () => {
+    const output = execFileSync(process.execPath, [TSX_CLI, MEASURE_SCRIPT], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        IVEDAAI_SWAGGER_PATH: BUNDLED_SPEC,
+        IVEDAAI_READ_ONLY: "false",
+        IVEDAAI_ALLOW_COLLECTION_DELETE: "false",
+      },
+    });
+    expect(output).toContain(
+      "live-testing cautions: 0 chars (~0 tokens), 0.0% of the total, across 0 of 295 operations"
+    );
+  });
+
+  it("publishes the counting finding in the generated tool reference", () => {
+    const generated = readFileSync(join(__dirname, "..", "docs", "TOOLS.md"), "utf8");
+    for (const opId of ["GET /api/counting/dashboard", "GET /api/countings"]) {
+      const section = generated
+        .split("#### `")
+        .find((candidate) => candidate.startsWith(`${opId}\``));
+      expect(section, opId).toContain("top-level object-type keys");
+    }
   });
 
   it("derives the pattern for every date-time parameter the spec describes", () => {
@@ -1368,7 +1437,7 @@ describe("lossy partial-update guard", () => {
     // can send the right body and never hit the refusal.
     const group = ctx.tags.find((g) => g.operations.some((o) => o.id === OP));
     expect(group, "no tag exposes the guarded operation").toBeDefined();
-    const text = describeTag(ctx.spec, group!);
+    const text = describeTag(ctx.spec, group!, undefined, ctx.useBundledFindings);
     expect(text).toContain("CAUTION");
     expect(text).toContain("externalId");
   });
@@ -1655,7 +1724,7 @@ describe("connection failure messages", () => {
 describe("capability notes", () => {
   const ctxNotes = loadSwagger();
   const cameraGroup = ctxNotes.tags.find((g) => g.tag === "Camera")!;
-  const cameraDocs = describeTag(ctxNotes.spec, cameraGroup);
+  const cameraDocs = describeTag(ctxNotes.spec, cameraGroup, undefined, ctxNotes.useBundledFindings);
 
   it("says the jobs operation is what activates a camera", () => {
     const note = capabilityNote("POST /api/cameras/{cameraId}/jobs")!;

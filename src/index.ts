@@ -195,8 +195,8 @@ for (const group of ctx.tags) {
       // cannot do this", and the SDK's enum rejection does not correct that
       // impression — see READ_ONLY_NOTE.
       description: ACCESS_POLICY.readOnly
-        ? `${READ_ONLY_TOOL_NOTE}\n${describeTag(ctx.spec, { ...group, operations })}`
-        : describeTag(ctx.spec, { ...group, operations }),
+        ? `${READ_ONLY_TOOL_NOTE}\n${describeTag(ctx.spec, { ...group, operations }, undefined, ctx.useBundledFindings)}`
+        : describeTag(ctx.spec, { ...group, operations }, undefined, ctx.useBundledFindings),
       annotations: {
         readOnlyHint: isReadOnly,
         destructiveHint: hasDestructive,

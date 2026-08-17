@@ -85,6 +85,15 @@
  * has to read it rather than react to the status code.
  */
 
+// Live read-only validation established that `types` means an object-type key,
+// not a line-set type, a counting direction, or one of the nested synonyms the
+// type catalog returns. The wrong vocabulary answers 400 on dashboard and can
+// return 500 on history; a top-level catalog key returned 200 on both with the
+// same line set and time range.
+const COUNTING_TYPES_NOTE =
+  "NOTE: types values must use top-level object-type keys returned by GET /api/types/{category}; do not send a " +
+  "nested synonym, line-set type, or counting direction such as IN/OUT.";
+
 export const CAPABILITY_NOTES: Record<string, string> = {
   "POST /api/cameras/{cameraId}/jobs":
     'NOTE: this is how a camera is activated and deactivated. activate=true starts analytics processing, ' +
@@ -110,6 +119,10 @@ export const CAPABILITY_NOTES: Record<string, string> = {
     'NOTE: isActivate filters on whether a camera is actively processing. The camera record carries no ' +
     'activation field, so "status" ("Processing" when active, "Idle" when not) is the per-record signal. ' +
     "To change it, use POST /api/cameras/{cameraId}/jobs with activate=true|false.",
+
+  "GET /api/counting/dashboard": COUNTING_TYPES_NOTE,
+
+  "GET /api/countings": COUNTING_TYPES_NOTE,
 
   "DELETE /api/cameras/{cameraId}":
     "NOTE: deleting a camera that is currently active does nothing at all, and the response does not say so — " +

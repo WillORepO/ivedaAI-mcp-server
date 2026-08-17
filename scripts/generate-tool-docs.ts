@@ -12,6 +12,7 @@ import { describeBodySchema } from "../src/toolDocs.js";
 import { describeTriggerTypes } from "../src/alertTrigger.js";
 import { lossyUpdateWarning } from "../src/partialUpdate.js";
 import { computeRoundTripGaps, roundTripWarning } from "../src/roundTrip.js";
+import { capabilityNote } from "../src/capabilityNotes.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ctx = loadSwagger();
@@ -59,7 +60,10 @@ function operationSection(op: Operation): string {
   // The same cautions the live tool descriptions carry. This reference is what
   // a person reads before wiring anything up, so omitting them here left the
   // human-facing docs quieter about data loss than the model-facing ones.
-  for (const warning of [lossyUpdateWarning(op.id), roundTripWarning(roundTripGaps[op.id], op.id)]) {
+  const warnings = ctx.useBundledFindings
+    ? [capabilityNote(op.id), lossyUpdateWarning(op.id), roundTripWarning(roundTripGaps[op.id], op.id)]
+    : [];
+  for (const warning of warnings) {
     if (warning) {
       lines.push(`> ⚠️ ${warning}`);
       lines.push("");
