@@ -64,17 +64,78 @@ const HTTP_METHODS = ["get", "post", "put", "delete", "patch", "options", "head"
  */
 const CONFIRMED_QUERY_PARAMETER_NAMES: Record<string, Record<string, string>> = {
   "GET /api/lineSets": { pageNumber: "page", pageSize: "size" },
+  // Same shape, same measurement, 2026-08-17. Undeclared `size=1` produced
+  // `size: 1`, and `page=1&size=1` produced `number: 1`; the *declared*
+  // `pageSize=1` left the endpoint's own default of 100 in place. Measured with
+  // a direct request because this server refuses query parameters an operation
+  // does not declare, so the working names were unreachable through it.
+  //
+  // `POST /api/scene-objects/search` has the same flattening and is deliberately
+  // absent: it requires a `descriptors` list this session had no way to supply,
+  // so nothing about it was measured, and a rename is a claim that a name works.
+  "GET /api/scene-objects/search": { pageNumber: "page", pageSize: "size" },
 };
+
+/**
+ * Paging parameters springdoc publishes and Spring does not bind.
+ *
+ * Flattening a `Pageable` emits ten query parameters; Spring binds three.
+ * Measured against a 10.0 deployment on 2026-08-17, sending each one alone to
+ * `GET /api/engine-objects` (20 records, default page 20) and reading back the
+ * page state the response reports:
+ *
+ *   | sent                | applied                                    |
+ *   | page=2&size=3       | size 3, number 2, offset 6      — bound    |
+ *   | size=3              | size 3                          — bound    |
+ *   | sort=…,desc / ,asc  | first record 20 / 1             — bound    |
+ *   | pageSize=3          | size 20, unchanged              — INERT    |
+ *   | pageNumber=2        | number 0, unchanged             — INERT    |
+ *   | offset=10           | offset 0, unchanged             — INERT    |
+ *   | paged=false         | paged true, unchanged           — INERT    |
+ *   | unpaged=true        | unpaged false, unchanged        — INERT    |
+ *   | sort.sorted=false   | unchanged                       — INERT    |
+ *   | sort.unsorted=true  | unchanged                       — INERT    |
+ *
+ * Confirmed on the other shape too: `GET /api/scene-objects/search`, which
+ * declares no `page`/`size` at all, still ignored `pageSize`. And where the two
+ * disagree the bound one wins — `size=3&pageSize=15` returned 3.
+ *
+ * Publishing them is worse than saying nothing, which is why they are removed
+ * rather than merely documented. `request.ts` forwards any declared parameter,
+ * so `pageSize: 10` reaches the deployment, is ignored, and returns the default
+ * page — a wrong answer that looks like a right one. Dropped, the same call is
+ * refused by `validateArgs` with the valid names listed, which is the failure a
+ * caller can act on.
+ *
+ * Keyed on declaring both `paged` and `unpaged`, springdoc's unmistakable
+ * signature, so a genuine `offset` on some future endpoint is untouched. Applied
+ * after the renames above, so a name corrected into `page`/`size` survives.
+ */
+const INERT_PAGING_PARAMETERS = new Set([
+  "offset",
+  "pageNumber",
+  "pageSize",
+  "paged",
+  "unpaged",
+  "sort.sorted",
+  "sort.unsorted",
+]);
 
 function correctedParameters(id: string, parameters: ParamDef[], useBundledFindings: boolean): ParamDef[] {
   if (!useBundledFindings) return parameters;
+
   const names = CONFIRMED_QUERY_PARAMETER_NAMES[id];
-  if (!names) return parameters;
-  return parameters.map((parameter) =>
-    parameter.in === "query" && names[parameter.name]
-      ? { ...parameter, name: names[parameter.name] }
-      : parameter
-  );
+  const renamed = names
+    ? parameters.map((parameter) =>
+        parameter.in === "query" && names[parameter.name]
+          ? { ...parameter, name: names[parameter.name] }
+          : parameter
+      )
+    : parameters;
+
+  const queryNames = new Set(renamed.filter((p) => p.in === "query").map((p) => p.name));
+  if (!(queryNames.has("paged") && queryNames.has("unpaged"))) return renamed;
+  return renamed.filter((p) => !(p.in === "query" && INERT_PAGING_PARAMETERS.has(p.name)));
 }
 
 function loadRawSpec(): any {
