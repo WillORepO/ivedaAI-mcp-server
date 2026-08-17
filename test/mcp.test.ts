@@ -56,6 +56,8 @@ let port: number;
  */
 let tokenRequests = 0;
 let uploadsReceived: { hasFilePart: boolean; bytes: number }[] = [];
+/** Requests to the guarded update, so a refusal can be shown not to have travelled. */
+let userGroupPatches = 0;
 
 /** Fixture tree for the upload tests; removed in afterAll. */
 let uploadBase: string;
@@ -114,6 +116,26 @@ beforeAll(async () => {
       const blob = Buffer.alloc(JPEG_BYTES, 0xcd);
       res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": String(blob.length) });
       res.end(blob);
+      return;
+    }
+    // A record carrying a credential-shaped field, so redaction has something
+    // real to mask. The deployment returns NVR passwords in plain text.
+    if (url.pathname === "/ainvr/api/nvrs" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          content: [{ nvrId: 1, name: "Back Office NVR", account: "admin", password: "hunter2-in-the-clear" }],
+          totalElements: 1,
+        })
+      );
+      return;
+    }
+    // The lossy-update guard's one operation. Counted rather than answered:
+    // a refusal that reaches here has not refused.
+    if (/^\/ainvr\/api\/user-groups\/\S+$/.test(url.pathname) && req.method === "PATCH") {
+      userGroupPatches += 1;
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ userGroupId: "g1", name: "patched" }));
       return;
     }
     // A camera update, so the round-trip diagnostic has a 2xx to ride on. It
@@ -722,6 +744,88 @@ describe("MCP server over stdio", () => {
       expect(res.result.isError).toBeFalsy();
       expect(JSON.parse(res.result.content[0].text).omittedFields).toBeUndefined();
       expect(res.result.structuredContent?.omittedFields).toBeUndefined();
+    });
+  }, 60_000);
+
+  /**
+   * Two safety promises, asserted where a client collects them.
+   *
+   * Both are well covered in the library and neither had a client-facing
+   * assertion. That is the same shape as the upload guard and the round-trip
+   * diagnostic before them: correct in `redact.ts` and `partialUpdate.ts`, and
+   * nothing checking that `index.ts` still calls them. Silent when it breaks —
+   * a password reaching a model, or an update quietly discarding a field — which
+   * is exactly the kind of failure a test has to catch instead of a person.
+   */
+  it("masks a credential-shaped field before the model can read it", async () => {
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", {
+        name: "ivedaai_nvr",
+        arguments: { operation: "GET /api/nvrs", query: { size: 1 } },
+      });
+      const text = res.result.content[0].text as string;
+      // The value itself must not appear anywhere in what the client receives —
+      // neither half of the result, not just the parsed body.
+      expect(text).not.toContain("hunter2-in-the-clear");
+      expect(JSON.stringify(res.result.structuredContent)).not.toContain("hunter2-in-the-clear");
+      expect(JSON.parse(text).body.content[0].password).toMatch(/REDACTED/);
+      // Everything else survives: redaction that ate the record would pass a
+      // test that only checked the secret was gone.
+      expect(JSON.parse(text).body.content[0].name).toBe("Back Office NVR");
+    });
+  }, 60_000);
+
+  it("hands the secret over when the operator turns redaction off", async () => {
+    // Otherwise the test above passes whenever redaction is broken *open* in the
+    // other direction — masking everything, or the field never arriving at all.
+    await withClient({ IVEDAAI_REDACT_SECRETS: "false" }, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", {
+        name: "ivedaai_nvr",
+        arguments: { operation: "GET /api/nvrs", query: { size: 1 } },
+      });
+      expect(JSON.parse(res.result.content[0].text).body.content[0].password).toBe("hunter2-in-the-clear");
+    });
+  }, 60_000);
+
+  it("refuses a partial update that would silently discard a field", async () => {
+    const before = userGroupPatches;
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", {
+        name: "ivedaai_user_group",
+        arguments: {
+          operation: "PATCH /api/user-groups/{userGroupId}",
+          path: { userGroupId: "g1" },
+          body: { name: "renamed" },
+        },
+      });
+      expect(res.result.isError).toBe(true);
+      expect(res.result.content[0].text).toContain("externalId");
+      // The refusal has to happen here, not at the deployment: this endpoint
+      // answers 200 while nulling the omitted field, so a call that travels has
+      // already done the damage.
+      expect(userGroupPatches).toBe(before);
+    });
+  }, 60_000);
+
+  it("lets the same update through once the field is stated explicitly", async () => {
+    // The guard exists to stop an accident, not to make the operation
+    // unreachable — clearing a field on purpose is a legitimate thing to do.
+    const before = userGroupPatches;
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", {
+        name: "ivedaai_user_group",
+        arguments: {
+          operation: "PATCH /api/user-groups/{userGroupId}",
+          path: { userGroupId: "g1" },
+          body: { name: "renamed", externalId: null },
+        },
+      });
+      expect(res.result.isError).toBeFalsy();
+      expect(userGroupPatches).toBe(before + 1);
     });
   }, 60_000);
 
