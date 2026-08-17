@@ -18,9 +18,10 @@
  */
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
@@ -49,6 +50,17 @@ const BUNDLED_SPEC = fileURLToPath(new URL("../resources/openapi.json", import.m
 let mock: Server;
 let port: number;
 
+/**
+ * What the mock was asked to do, so a test can assert on what it was *not*
+ * asked to do. A refused upload must reach neither counter.
+ */
+let tokenRequests = 0;
+let uploadsReceived: { hasFilePart: boolean; bytes: number }[] = [];
+
+/** Fixture tree for the upload tests; removed in afterAll. */
+let uploadBase: string;
+let uploadRoot: string;
+
 /** Size of the mock JPEG. Larger than the small cap the truncation test sets. */
 const JPEG_BYTES = 9000;
 
@@ -56,6 +68,7 @@ beforeAll(async () => {
   mock = createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (url.pathname === "/ainvr/api/oauth2/token") {
+      tokenRequests += 1;
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ access_token: "test-token", token_type: "Bearer", expires_in: 600 }));
       return;
@@ -103,15 +116,40 @@ beforeAll(async () => {
       res.end(blob);
       return;
     }
+    // A multipart sink, so an upload that is *allowed* can be shown to arrive
+    // rather than merely not being refused.
+    if (url.pathname === "/ainvr/api/detection/objects" && req.method === "POST") {
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(c));
+      req.on("end", () => {
+        const raw = Buffer.concat(chunks);
+        uploadsReceived.push({ hasFilePart: /name="file"/.test(raw.toString("latin1")), bytes: raw.length });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      });
+      return;
+    }
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ message: "not found" }));
   });
   await new Promise<void>((resolve) => mock.listen(0, "127.0.0.1", resolve));
   port = (mock.address() as { port: number }).port;
+
+  uploadBase = mkdtempSync(join(tmpdir(), "mcp-upload-"));
+  uploadRoot = join(uploadBase, "root");
+  mkdirSync(uploadRoot);
+  writeFileSync(join(uploadRoot, "face.jpg"), Buffer.alloc(1024, 0xab));
+  mkdirSync(join(uploadBase, "elsewhere", ".ssh"), { recursive: true });
+  writeFileSync(join(uploadBase, "elsewhere", ".ssh", "id_rsa"), "PRIVATE KEY");
+  // Deliberately in an innocuous directory: this one has to be caught by its
+  // name, not by the directory it sits in, which is the rule the .ssh fixture
+  // does not exercise.
+  writeFileSync(join(uploadBase, "elsewhere", "claude_desktop_config.json"), '{"IVEDAAI_PASSWORD":"hunter2"}');
 });
 
 afterAll(async () => {
   await new Promise<void>((resolve) => mock.close(() => resolve()));
+  rmSync(uploadBase, { recursive: true, force: true });
 });
 
 /**
@@ -523,6 +561,93 @@ describe("MCP server over stdio", () => {
       const p = JSON.parse(res.result.content[0].text);
       expect(p.body.byteLength).toBe(JPEG_BYTES);
       expect(p.body.note).toContain("not returned inline");
+    });
+  }, 60_000);
+
+  /**
+   * The upload guard, exercised where a client reaches it.
+   *
+   * `uploadPath.ts` is unit-tested and `executeOperation` is integration-tested,
+   * including that a refused upload leaves the token and API counters alone. But
+   * neither touches `index.ts`, and this file exists because that is the gap
+   * that matters: the guard could be correct in both places and still be
+   * mis-wired in the tool handler — a swallowed error, or a `file` argument that
+   * never reaches `executeOperation` — and every other test would pass while a
+   * private key went to the deployment.
+   *
+   * The mock counts what it was asked to do, so these assert on what it was
+   * *not* asked to do rather than only on the text of a refusal.
+   */
+  const uploadCall = (path: string) => ({
+    name: "ivedaai_detection",
+    arguments: { operation: "POST /api/detection/objects", file: { path } },
+  });
+
+  it("refuses a local file when no upload root is configured", async () => {
+    uploadsReceived = [];
+    await withClient({}, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", uploadCall(join(uploadRoot, "face.jpg")));
+      expect(res.result.isError).toBe(true);
+      expect(res.result.content[0].text).toContain("IVEDAAI_UPLOAD_ROOT");
+      expect(uploadsReceived).toHaveLength(0);
+    });
+  }, 60_000);
+
+  it("uploads a file inside the configured root, and the bytes arrive", async () => {
+    uploadsReceived = [];
+    await withClient({ IVEDAAI_UPLOAD_ROOT: uploadRoot }, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", uploadCall(join(uploadRoot, "face.jpg")));
+      expect(res.result.isError).toBeFalsy();
+      // Not merely "was not refused": the multipart body reached the mock.
+      expect(uploadsReceived).toHaveLength(1);
+      expect(uploadsReceived[0].hasFilePart).toBe(true);
+      expect(uploadsReceived[0].bytes).toBeGreaterThan(1024);
+    });
+  }, 60_000);
+
+  it("refuses a path outside the root, without contacting the deployment", async () => {
+    uploadsReceived = [];
+    const before = tokenRequests;
+    await withClient({ IVEDAAI_UPLOAD_ROOT: uploadRoot }, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", uploadCall(join(uploadBase, "elsewhere", ".ssh", "id_rsa")));
+      expect(res.result.isError).toBe(true);
+      expect(res.result.content[0].text).toMatch(/Refusing to upload/);
+      expect(uploadsReceived).toHaveLength(0);
+      // Validation runs before authentication, so a rejected upload cannot even
+      // put the account password on the wire.
+      expect(tokenRequests).toBe(before);
+    });
+  }, 60_000);
+
+  it("still refuses a credential path under the unconfined escape hatch", async () => {
+    uploadsReceived = [];
+    const before = tokenRequests;
+    await withClient({ IVEDAAI_ALLOW_UNCONFINED_UPLOADS: "true" }, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", uploadCall(join(uploadBase, "elsewhere", ".ssh", "id_rsa")));
+      expect(res.result.isError).toBe(true);
+      expect(uploadsReceived).toHaveLength(0);
+      expect(tokenRequests).toBe(before);
+    });
+  }, 60_000);
+
+  it("refuses the MCP client's own config by name, wherever it lives", async () => {
+    // The .ssh fixture above is refused by its directory, so the filename rule
+    // was untested until a mutation showed the other test still passed with
+    // "id_rsa" removed. This one sits in an ordinary directory and can only be
+    // caught by its name — and it is the file that, on a normal install, holds
+    // IVEDAAI_PASSWORD in clear text.
+    uploadsReceived = [];
+    const before = tokenRequests;
+    await withClient({ IVEDAAI_ALLOW_UNCONFINED_UPLOADS: "true" }, async (c) => {
+      await c.start();
+      const res = await c.call("tools/call", uploadCall(join(uploadBase, "elsewhere", "claude_desktop_config.json")));
+      expect(res.result.isError).toBe(true);
+      expect(uploadsReceived).toHaveLength(0);
+      expect(tokenRequests).toBe(before);
     });
   }, 60_000);
 
