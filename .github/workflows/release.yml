@@ -1,6 +1,6 @@
 # Publishes to npm when a version tag is pushed.
 #
-# Deliberately tag-driven rather than publishing on every merge to master: a
+# Deliberately tag-driven rather than publishing on every merge to main: a
 # release is a decision, and `npm publish` cannot be taken back — a version
 # number is burned even if the package is immediately unpublished.
 #
@@ -29,11 +29,19 @@ jobs:
 
       - run: npm ci
 
-      # The same gate as CI. `prepublishOnly` runs these again during publish;
-      # running them here too means a bad tag fails before anything is uploaded.
+      # The same gate as CI. `prepublishOnly` runs build and tests again during
+      # publish; running the complete gate here means a bad tag fails before
+      # anything is uploaded.
       - run: npm run build
       - run: npm run typecheck
       - run: npm test
+      - run: npm run measure
+      - run: npm run verify:evals
+
+      - name: Generated tool docs are up to date
+        run: |
+          npm run docs
+          git diff --exit-code -- docs/TOOLS.md
 
       # Catches the mistake this workflow exists to prevent: a tag that does not
       # match the version being published.
@@ -46,11 +54,26 @@ jobs:
             exit 1
           fi
 
-      - name: Confirm the tarball carries what it should
+      - name: Confirm and smoke-test the tarball
         run: |
-          npm pack --dry-run 2>&1 | tee /tmp/pack.txt
-          grep -q "dist/index.js" /tmp/pack.txt || { echo "::error::dist/index.js missing from tarball"; exit 1; }
-          grep -q "resources/openapi.json" /tmp/pack.txt || { echo "::error::resources/openapi.json missing from tarball"; exit 1; }
+          npm pack --json > /tmp/pack.json
+          node <<'NODE'
+          const fs = require("node:fs");
+          const pack = JSON.parse(fs.readFileSync("/tmp/pack.json", "utf8"))[0];
+          const paths = pack.files.map((file) => file.path).sort();
+          const required = ["dist/index.js", "resources/openapi.json", "package.json", "README.md", "LICENSE", "SECURITY.md"];
+          const forbidden = paths.filter((path) => /^(evaluations|scripts|src|test)\//.test(path));
+          if (pack.entryCount !== 21) throw new Error(`expected 21 package entries, found ${pack.entryCount}`);
+          for (const path of required) if (!paths.includes(path)) throw new Error(`${path} missing from tarball`);
+          if (forbidden.length) throw new Error(`development-only files in tarball: ${forbidden.join(", ")}`);
+          fs.writeFileSync("/tmp/tarball-name", pack.filename);
+          NODE
+          TARBALL="$(cat /tmp/tarball-name)"
+          INSTALL_ROOT="$(mktemp -d)"
+          npm install --prefix "$INSTALL_ROOT" "./$TARBALL"
+          test "$("$INSTALL_ROOT/node_modules/.bin/ivedaai-mcp-server" --version)" = "${GITHUB_REF_NAME#v}"
+          "$INSTALL_ROOT/node_modules/.bin/ivedaai-mcp-server" --help | grep -q "IVEDAAI_UPLOAD_ROOT"
+          rm -rf "$INSTALL_ROOT" "$TARBALL"
 
       - run: npm publish --provenance --access public
         env:

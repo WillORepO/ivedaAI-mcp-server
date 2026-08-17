@@ -69,6 +69,12 @@ Releases are tag-driven. Bump the version, update [CHANGELOG.md](CHANGELOG.md), 
 git tag v1.2.3 && git push origin v1.2.3
 ```
 
-The release workflow rebuilds, typechecks, runs the tests, verifies the tag matches
-`package.json`, confirms `dist/index.js` and `resources/openapi.json` are actually in the tarball,
-and publishes to npm. It needs an `NPM_TOKEN` secret with publish rights.
+Before pushing the tag, confirm `NPM_TOKEN` exists in the repository's Actions secrets and has
+publish rights for the package. The release workflow rebuilds, typechecks, runs tests, measurements
+and static evaluations, verifies generated docs, verifies the tag matches `package.json`, asserts the
+21-file package boundary, installs the actual tarball, smoke-tests its CLI, and only then publishes
+to npm with provenance and creates the GitHub Release.
+
+For the first `1.0.0` publication, the npm package does not exist yet: the token's account or
+organisation must be allowed to create the unscoped `ivedaai-mcp-server` package. Do not push
+`v1.0.0` merely to test credentials—a published version number cannot be reused.
