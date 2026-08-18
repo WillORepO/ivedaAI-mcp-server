@@ -1,4 +1,5 @@
 import { capabilityNote } from "./capabilityNotes.js";
+import { describeTriggerTypesCompact } from "./alertTrigger.js";
 import type { Operation, ParamDef, TagGroup } from "./swagger.js";
 import { resolveSchema } from "./swagger.js";
 import { lossyUpdateWarning } from "./partialUpdate.js";
@@ -303,3 +304,80 @@ export function describeTag(
   const body = group.operations.map((op) => describeOperation(spec, op, gaps, useBundledFindings)).join("\n\n");
   return header + "\n" + body;
 }
+
+/**
+ * The three hand-written tools' descriptions, moved out of `index.ts`.
+ *
+ * Moved because `npm run measure` could not see them there. That script builds
+ * descriptions from the spec, so it counted the 63 generated tools and admitted
+ * the rest in a caveat — while the largest single tool of any kind was one of
+ * these three. Trimming `ivedaai_alert_integration` by 6,207 characters moved
+ * the reported total by exactly zero, which is how the cost sat unnoticed. A
+ * budget the measuring tool cannot see is not a budget.
+ *
+ * They are data rather than prose in a registration for that reason alone. The
+ * registrations read the same way, and the annotations and comments that
+ * surrounded them stay where they were.
+ */
+export const GET_SCHEMA_DESCRIPTION =
+  "Looks up the full JSON schema for a named IvedaAI API definition (e.g. \"CameraRequest\"). " +
+      "Use this when a tool's body schema summary is truncated or you need the exact shape of a nested field. " +
+      "Call ivedaai_get_schema with no name to list all available definition names. " +
+      "Returns {name, schema} for a lookup, or {names} for the listing.";
+
+export const ALERT_INTEGRATION_DESCRIPTION =
+  "Configures and tests AlertRule.trigger — the mechanism that routes IvedaAI alerts to external systems " +
+        "(generic HTTP webhooks, named VMS/PSIM platforms, email, Immix, mobile push). The raw API schema here is " +
+        "deeply nested and has undocumented gotchas (see below), confirmed by live testing rather than the spec alone.\n\n" +
+        "Actions:\n" +
+        "  list_types — no API call; returns this same type/testability reference as JSON, under \"types\".\n" +
+        "  test — builds the correct trigger payload for `type`+`config` and calls POST /api/alertTriggers to live-test " +
+        "it, returning a plain-language verdict (success / unsupported / invalid_config / connection_failed). Only " +
+        "'request', 'mobile', and the 13 VMS types are testable — 'mail'/'immix' always return 'unsupported' " +
+        "(confirmed against a real server). How long a VMS connection failure takes to report is unpredictable — " +
+        "repeated tests against the same unreachable address ranged from under a second to ~24s in testing, not " +
+        "tied to any particular vendor — the default 60000ms timeout is meant to cover the slow case regardless of " +
+        "which VMS type you're testing; override via `timeoutMs` if you need even more headroom.\n" +
+        "  apply — attaches the built trigger to an existing alert rule (`alertRuleId`, its UUID). Does not require " +
+        "having called 'test' first, but doing so is recommended. It reads the rule first and re-sends everything " +
+        "the read exposes alongside the new trigger: name (returned as alertName), alertType, description, " +
+        "isEnabled, plus weekdays/enableForever from `schedule` and roiIds/cameraIds/hashtags/typeLogic/" +
+        "cooldownInterval parsed out of the " +
+        "`condition` JSON string. It refuses to write if that read fails or lacks the required fields. This is " +
+        "precaution rather than repair — PATCH /api/alertRules/{alertRuleId} was live-tested and merges, leaving " +
+        "omitted fields alone, so applying a trigger does not wipe the rule. (PUT on the same path is different: " +
+        "it rejects a partial body with a 500, so send the full object there.)\n\n" +
+        "Config shape by category:\n" +
+        "  webhook (request): { method, url, headers?, params?, authorization?, httpBody? } — authorization/httpBody " +
+        "default to {auth:\"NONE\"}/{type:\"NONE\"} automatically; the server requires them present even when unused, " +
+        "despite the spec marking them optional.\n" +
+        "  vms (13 named platforms): { ip, port, username?, password?, protocol?, severity?, cameraIds?, ... } — see " +
+        "ivedaai_get_schema(\"AlertTriggerNvr\") for the full field list.\n" +
+        "  mail/immix: { emails: [{mailIds?, subject?, content?}], smtpServer, port }\n" +
+        "  mobile: { enableCriticalAlertNotice? } (all fields optional)\n\n" +
+        "Types (grouped; call list_types for what each one is):\n" +
+        describeTriggerTypesCompact();
+
+export const ADD_CAMERA_DESCRIPTION =
+  "Adds one or more cameras (e.g. from a list of IPs or RTSP stream URLs) and starts their connection. " +
+        "The raw CameraRequest schema has undocumented gotchas confirmed by live testing:\n" +
+        "  - A schema-valid minimal body (name, streamUrl, engineProfileId, roiContour) still throws a bare " +
+        "server-side error unless several other optional-looking fields are also filled — this tool fills them " +
+        "with sane defaults automatically (resolution 1920x1080, frameRate 25, empty schedule/plugins, etc.).\n" +
+        "  - Creating the record is NOT enough for the camera to actually connect or be fully visible in the " +
+        "product UI: a separate activation step (allocating a processing resource and starting the stream) is " +
+        "required, which this tool performs automatically unless `activate: false` is passed.\n" +
+        "  - A creation error can still partially create the camera server-side before failing. This tool checks " +
+        "for that by exact name after any error and reports `created_despite_error` with the real cameraId instead " +
+        "of a false `failed`, so you don't end up with a confusing orphaned duplicate.\n\n" +
+        "Only `name` plus either `streamUrl` or `ip` are required per camera — everything else is optional and " +
+        "defaulted (engineProfileId defaults to the first engine profile found; roiContour defaults to a " +
+        "full-frame rectangle). Providing the exact `streamUrl` is much more reliable than `ip` alone: this tool " +
+        "can only guess a generic RTSP root path from ip/account/password, which often doesn't match a specific " +
+        "camera's actual manufacturer-specific stream path.\n\n" +
+        "IMPORTANT: activation starting successfully does NOT mean the stream is actually connected — that can " +
+        "take anywhere from under a second to failing after 90+ seconds with no error at all (observed live), " +
+        "which usually indicates a network-reachability problem between the IvedaAI server and the camera, not a " +
+        "problem with this tool. Check back later with the returned `jobId` via the ivedaai_job tool " +
+        "(`GET /api/jobs/{jobId}`), or re-check the camera via ivedaai_camera (`GET /api/cameras/{cameraId}`) for " +
+        "a populated `status` field, to confirm it actually connected.";

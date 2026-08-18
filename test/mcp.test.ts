@@ -24,6 +24,11 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import {
+  GET_SCHEMA_DESCRIPTION,
+  ALERT_INTEGRATION_DESCRIPTION,
+  ADD_CAMERA_DESCRIPTION,
+} from "../src/toolDocs.js";
 
 /**
  * tsx's CLI and this server's entry point, both as absolute paths.
@@ -826,6 +831,57 @@ describe("MCP server over stdio", () => {
       });
       expect(res.result.isError).toBeFalsy();
       expect(userGroupPatches).toBe(before + 1);
+    });
+  }, 60_000);
+
+  /**
+   * The hand-written descriptions must stay where the budget script can see them.
+   *
+   * They were inline string literals in `index.ts` until today, out of reach of
+   * `measure` — which therefore reported the 63 generated tools and disclaimed
+   * the rest. `ivedaai_alert_integration` was the largest single tool of any kind
+   * at the time, and trimming it by 6,207 characters moved the reported total by
+   * exactly zero.
+   *
+   * Note what this does *not* do. Comparing the served description against the
+   * exported constant proves nothing: `index.ts` references that same constant,
+   * so both sides move together and the assertion cannot fail. Mutation testing
+   * caught that — the first version of this test passed with the constant
+   * deliberately corrupted.
+   *
+   * So it checks the registrations reference the constants, which is the property
+   * that actually keeps the budget measurable, and would fail if someone pasted a
+   * literal back into a registration.
+   */
+  it("registers the hand-written tools from the measured constants, not inline text", () => {
+    const source = readFileSync(SERVER_ENTRY, "utf8");
+    for (const constant of ["GET_SCHEMA_DESCRIPTION", "ALERT_INTEGRATION_DESCRIPTION", "ADD_CAMERA_DESCRIPTION"]) {
+      expect(source, constant).toContain(`description: ${constant},`);
+    }
+    // And no registration carries a long literal of its own any more. 400 is well
+    // above the longest remaining inline string and well below the 2,000-plus
+    // characters each of these three used to occupy.
+    const inlineLiterals = [...source.matchAll(/description:\s*"([^"]{400,})"/g)];
+    expect(inlineLiterals.map((m) => m[1].slice(0, 60))).toEqual([]);
+  });
+
+  it("serves those exact descriptions to a client", async () => {
+    // Weaker than it looks on its own — see above — but worth keeping as the end
+    // of the chain: the constants really are what reaches a tool list.
+    await withClient({}, async (c) => {
+      await c.start();
+      const tools = (await c.call("tools/list")).result.tools;
+      const lengths = Object.fromEntries(
+        ["ivedaai_get_schema", "ivedaai_alert_integration", "ivedaai_add_camera"].map((n) => [
+          n,
+          tools.find((t: any) => t.name === n)?.description?.length,
+        ])
+      );
+      expect(lengths).toEqual({
+        ivedaai_get_schema: GET_SCHEMA_DESCRIPTION.length,
+        ivedaai_alert_integration: ALERT_INTEGRATION_DESCRIPTION.length,
+        ivedaai_add_camera: ADD_CAMERA_DESCRIPTION.length,
+      });
     });
   }, 60_000);
 

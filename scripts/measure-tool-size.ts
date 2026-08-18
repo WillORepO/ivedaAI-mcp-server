@@ -21,11 +21,21 @@
 import { z } from "zod";
 import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
 import { loadSwagger, tagToToolName } from "../src/swagger.js";
-import { describeTag } from "../src/toolDocs.js";
+import {
+  describeTag,
+  GET_SCHEMA_DESCRIPTION,
+  ALERT_INTEGRATION_DESCRIPTION,
+  ADD_CAMERA_DESCRIPTION,
+} from "../src/toolDocs.js";
 import { computeRoundTripGaps, roundTripWarning } from "../src/roundTrip.js";
 import { policyFromEnv, allowedOperations } from "../src/accessPolicy.js";
 import { lossyUpdateWarning } from "../src/partialUpdate.js";
-import { apiResponseOutput } from "../src/outputSchema.js";
+import {
+  apiResponseOutput,
+  schemaLookupOutput,
+  alertIntegrationOutput,
+  addCameraOutput,
+} from "../src/outputSchema.js";
 import { capabilityNote } from "../src/capabilityNotes.js";
 
 const ctx = loadSwagger();
@@ -92,6 +102,36 @@ const outputSchemaChars = JSON.stringify(
 ).length;
 const outputSchemaTotal = outputSchemaChars * perTool.length;
 
+/**
+ * The three hand-written tools, which this script used to leave out.
+ *
+ * It builds descriptions from the spec, so it saw the 63 generated tools and
+ * nothing else — and admitted as much in a caveat that was easy to read past.
+ * That mattered more than it sounds: `ivedaai_alert_integration` was for a while
+ * the largest single tool of any kind, and trimming it by 6,207 characters moved
+ * the number printed here by exactly zero. A budget the measuring tool cannot
+ * see is not a budget, so these are counted now rather than disclaimed.
+ *
+ * Their descriptions live in `toolDocs.ts` for this reason; the registrations in
+ * `index.ts` reference them. Each is paid once rather than 63 times, which is why
+ * they are allowed prose the generated tools are not.
+ */
+const handWritten = [
+  { tool: "ivedaai_get_schema", description: GET_SCHEMA_DESCRIPTION, output: schemaLookupOutput },
+  { tool: "ivedaai_alert_integration", description: ALERT_INTEGRATION_DESCRIPTION, output: alertIntegrationOutput },
+  { tool: "ivedaai_add_camera", description: ADD_CAMERA_DESCRIPTION, output: addCameraOutput },
+].map((t) => ({
+  ...t,
+  chars: t.description.length,
+  schemaChars: JSON.stringify(
+    toJsonSchemaCompat(z.object(t.output), { strictUnions: true, pipeStrategy: "output" })
+  ).length,
+}));
+
+const handWrittenChars = handWritten.reduce((n, t) => n + t.chars, 0);
+const handWrittenSchemaChars = handWritten.reduce((n, t) => n + t.schemaChars, 0);
+const connectTotal = total + outputSchemaTotal + handWrittenChars + handWrittenSchemaChars;
+
 perTool.sort((a, b) => b.chars - a.chars);
 const median = perTool[Math.floor(perTool.length / 2)].chars;
 
@@ -99,17 +139,7 @@ console.log(`\nTool-description budget — what a client loads on connect\n`);
 console.log(`  tools:            ${perTool.length}`);
 console.log(`  operations:       ${totalOps}`);
 console.log(`  total:            ${fmt(total)} chars  (~${fmt(approxTokens(total))} tokens)`);
-// Say what this number leaves out, because it was quietly the wrong number to
-// reason with. This script builds descriptions from the spec, so it sees the
-// generated tools and none of the three hand-written ones — and one of those,
-// `ivedaai_alert_integration`, was for a long time the single largest tool of
-// any kind. Trimming it by 6,207 characters moved this total by zero, which is
-// how the cost went unnoticed in the first place.
-console.log(
-  `                    (generated tools only — ivedaai_get_schema, ivedaai_add_camera and\n` +
-    `                     ivedaai_alert_integration are hand-written and not counted here.\n` +
-    `                     For the whole connect payload, read tools/list off a running server.)`
-);
+console.log(`                    (the 63 generated tools; the 3 hand-written ones are listed below)`);
 console.log(`  mean per tool:    ${fmt(Math.round(total / perTool.length))} chars`);
 console.log(`  median per tool:  ${fmt(median)} chars`);
 console.log(
@@ -118,6 +148,16 @@ console.log(
 );
 console.log(`  descriptions + schemas: ${fmt(total + outputSchemaTotal)} chars  ` +
   `(~${fmt(approxTokens(total + outputSchemaTotal))} tokens)`);
+console.log(
+  `  hand-written:     ${fmt(handWrittenChars)} chars  (~${fmt(approxTokens(handWrittenChars))} tokens)  — 3 tools, ` +
+    `plus ${fmt(handWrittenSchemaChars)} chars of their own output schemas`
+);
+for (const t of handWritten) {
+  console.log(`                      ${t.tool.padEnd(28)} ${fmt(t.chars)} chars + ${fmt(t.schemaChars)} schema`);
+}
+console.log(
+  `\n  EVERYTHING a client loads on connect: ${fmt(connectTotal)} chars  (~${fmt(approxTokens(connectTotal))} tokens)`
+);
 console.log(`\n  live-testing cautions: ${fmt(warningChars)} chars (~${fmt(approxTokens(warningChars))} tokens), ` +
   `${((warningChars / total) * 100).toFixed(1)}% of the total, across ${warnedOps} of ${totalOps} operations`);
 
