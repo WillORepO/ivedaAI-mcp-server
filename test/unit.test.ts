@@ -10,6 +10,7 @@ import {
   tagToToolName,
   schemaDefinitions,
   CONFIRMED_REQUIRED_FIELDS,
+  asObject,
   type Operation,
 } from "../src/swagger.js";
 import {
@@ -836,7 +837,7 @@ describe("computeRoundTripGaps", () => {
   it("falls back to the collection GET when a path has no item GET", () => {
     // /api/user-groups/{userGroupId} has no GET at all. Without the fallback
     // every field would be reported unreadable, including externalId.
-    expect(ctx.spec.paths["/api/user-groups/{userGroupId}"].get).toBeUndefined();
+    expect(asObject(asObject(ctx.spec.paths)?.["/api/user-groups/{userGroupId}"])?.get).toBeUndefined();
     expect(gaps["PATCH /api/user-groups/{userGroupId}"].readOp).toBe("GET /api/user-groups");
   });
 

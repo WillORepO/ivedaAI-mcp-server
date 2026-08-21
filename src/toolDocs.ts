@@ -1,7 +1,7 @@
 import { capabilityNote } from "./capabilityNotes.js";
 import { describeTriggerTypesCompact } from "./alertTrigger.js";
 import type { Operation, ParamDef, TagGroup } from "./swagger.js";
-import { resolveSchema } from "./swagger.js";
+import { resolveSchema, type JsonObject, type SchemaNode } from "./swagger.js";
 import { lossyUpdateWarning } from "./partialUpdate.js";
 import { computeRoundTripGaps, roundTripWarning, type RoundTripGap } from "./roundTrip.js";
 
@@ -42,22 +42,22 @@ function refName(ref: string): string {
   return ref.split("/").pop() ?? ref;
 }
 
-function describePropType(spec: any, propSchema: any): string {
+function describePropType(spec: JsonObject, propSchema: SchemaNode | undefined): string {
   if (!propSchema) return "any";
   if (propSchema.$ref) return refName(propSchema.$ref);
   if (propSchema.type === "array") {
     const items = propSchema.items;
     if (items?.$ref) return `${refName(items.$ref)}[]`;
-    if (items?.enum) return `enum[](${items.enum.slice(0, MAX_ENUM).join("|")})`;
+    if (items?.enum) return `enum[](${items.enum.slice(0, MAX_ENUM).map(String).join("|")})`;
     return `${items?.type ?? "any"}[]`;
   }
-  if (propSchema.enum) return `enum(${propSchema.enum.slice(0, MAX_ENUM).join("|")})`;
+  if (propSchema.enum) return `enum(${propSchema.enum.slice(0, MAX_ENUM).map(String).join("|")})`;
   return propSchema.type ?? "any";
 }
 
-function describeObjectProps(spec: any, schema: any): string {
+function describeObjectProps(spec: JsonObject, schema: SchemaNode): string {
   const required = new Set<string>(schema.required ?? []);
-  const props: Record<string, any> = schema.properties ?? {};
+  const props: Record<string, SchemaNode> = schema.properties ?? {};
   const entries = Object.entries(props);
   const parts = entries
     .slice(0, MAX_PROPS)
@@ -67,7 +67,7 @@ function describeObjectProps(spec: any, schema: any): string {
 }
 
 /** Renders a compact, one-level-deep description of a body schema for tool docs. */
-export function describeBodySchema(spec: any, schemaRef: any): string {
+export function describeBodySchema(spec: JsonObject, schemaRef: SchemaNode | undefined): string {
   const resolved = resolveSchema(spec, schemaRef, 1);
   if (!resolved) return "(unknown schema)";
   if (resolved.$ref) return refName(resolved.$ref);
@@ -106,7 +106,7 @@ export function describeBodySchema(spec: any, schemaRef: any): string {
  * full, less than a pointer to itself would be, so small schemas keep their
  * complete field list and only the expensive ones are traded away.
  */
-function describeBodyForTool(spec: any, schema: any): string {
+function describeBodyForTool(spec: JsonObject, schema: SchemaNode | undefined): string {
   const full = describeBodySchema(spec, schema);
   const isArray = Boolean(schema?.items?.$ref);
   const ref: string | undefined = schema?.$ref ?? schema?.items?.$ref;
@@ -116,7 +116,7 @@ function describeBodyForTool(spec: any, schema: any): string {
   // Already rendered as nothing but the name — there is nothing left to trade.
   if (full === name || full === `array of ${name}`) return full;
 
-  const resolved = resolveSchema(spec, isArray ? schema.items : schema, 1);
+  const resolved = resolveSchema(spec, isArray ? schema?.items : schema, 1);
   const required: string[] = resolved?.required ?? [];
   const reqPart = required.length ? ` — required: ${required.join(", ")};` : " —";
   const compact = `${isArray ? "array of " : ""}${name}${reqPart} ivedaai_get_schema for all fields`;
@@ -160,7 +160,7 @@ function formatNonBodyParam(p: ParamDef): string {
 }
 
 function describeOperation(
-  spec: any,
+  spec: JsonObject,
   op: Operation,
   gaps: Record<string, RoundTripGap>,
   useBundledFindings: boolean
@@ -293,7 +293,7 @@ export const READ_ONLY_TOOL_NOTE =
  * dependency, so this does not quietly break on a client that ignores it.
  */
 export function describeTag(
-  spec: any,
+  spec: JsonObject,
   group: TagGroup,
   gaps = computeRoundTripGaps(spec),
   useBundledFindings = false

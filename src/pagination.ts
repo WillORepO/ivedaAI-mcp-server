@@ -1,4 +1,4 @@
-import { resolveRef, resolveSchema, type Operation } from "./swagger.js";
+import { resolveRef, resolveSchema, asObject, objectEntries, type JsonObject, type Operation } from "./swagger.js";
 
 /**
  * Pagination, normalised into the one shape a caller can rely on.
@@ -49,7 +49,7 @@ const PAGE_PARAMETER_PAIRS = [
 ] as const;
 
 /** Derives continuation arguments from the operation instead of assuming one Spring convention. */
-export function paginationRequest(spec: any, operation: Operation): PaginationRequest | undefined {
+export function paginationRequest(spec: JsonObject, operation: Operation): PaginationRequest | undefined {
   const direct = operation.parameters.filter((p) => p.in === "query" || p.in === "formData");
   for (const [pageParameter, sizeParameter] of PAGE_PARAMETER_PAIRS) {
     const page = direct.find((p) => p.name === pageParameter);
@@ -85,22 +85,21 @@ function num(value: unknown): number | undefined {
  * `totalElements` is what the code here actually reads. `PageSearchResult`
  * already breaks the naming pattern while keeping the shape.
  */
-function isPageSchema(spec: unknown, schema: unknown): boolean {
-  if (!schema || typeof schema !== "object") return false;
-  const s = schema as { $ref?: string; properties?: Record<string, unknown> };
-  if (s.$ref) return isPageSchema(spec, resolveRef(spec, s.$ref));
-  const props = s.properties;
+function isPageSchema(spec: JsonObject, schema: unknown): boolean {
+  const node = asObject(schema);
+  if (!node) return false;
+  if (typeof node.$ref === "string") return isPageSchema(spec, resolveRef(spec, node.$ref));
+  const props = asObject(node.properties);
   if (!props) return false;
   return "content" in props && "totalElements" in props;
 }
 
-function successSchema(operation: any): unknown {
-  const responses = operation?.responses ?? {};
-  for (const status of Object.keys(responses)) {
+function successSchema(operation: JsonObject): unknown {
+  const responses = asObject(operation.responses);
+  for (const [status, response] of objectEntries(responses)) {
     if (!/^2\d\d$/.test(status)) continue;
-    const content = responses[status]?.content ?? {};
-    for (const mediaType of Object.keys(content)) {
-      const schema = content[mediaType]?.schema;
+    for (const [, media] of objectEntries(asObject(response)?.content)) {
+      const schema = asObject(media)?.schema;
       if (schema) return schema;
     }
   }
@@ -115,11 +114,11 @@ function successSchema(operation: any): unknown {
  * paginated one. The cost of being wrong here is a fabricated `hasMore`, which
  * is worse than no summary at all.
  */
-export function paginatedOperations(spec: any): Set<string> {
+export function paginatedOperations(spec: JsonObject): Set<string> {
   const ids = new Set<string>();
-  for (const [path, pathItem] of Object.entries<any>(spec?.paths ?? {})) {
+  for (const [path, pathItem] of objectEntries(spec.paths)) {
     for (const method of ["get", "post"]) {
-      const operation = pathItem?.[method];
+      const operation = asObject(asObject(pathItem)?.[method]);
       if (!operation) continue;
       if (isPageSchema(spec, successSchema(operation))) ids.add(`${method.toUpperCase()} ${path}`);
     }
