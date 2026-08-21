@@ -5,7 +5,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
-import { loadSwagger, tagToToolName, schemaDefinitions, type Operation } from "../src/swagger.js";
+import {
+  loadSwagger,
+  tagToToolName,
+  schemaDefinitions,
+  CONFIRMED_REQUIRED_FIELDS,
+  type Operation,
+} from "../src/swagger.js";
 import {
   buildUrl,
   validateArgs,
@@ -1761,16 +1767,19 @@ describe("capability notes", () => {
     expect(note).toContain("deactivate another camera");
   });
 
-  it("corrects the create-camera required list, which the spec understates", () => {
-    // Measured: a body carrying only the spec's required field comes back 400
-    // naming four more that "must not be null", and persists nothing. The
-    // generic tool printed "required: cameraType" and never mentioned that
-    // ivedaai_add_camera exists to handle exactly this.
+  it("says what a corrected required list cannot", () => {
+    // The four field names used to live here. They now live in the schema, via
+    // CONFIRMED_REQUIRED_FIELDS, so the description's own required list states
+    // them — and repeating them in prose would be a second place to go stale.
+    // What the note still owes a caller is the rest: that the published spec
+    // disagrees, and that a purpose-built tool exists for this.
     const note = capabilityNote("POST /api/cameras")!;
-    for (const f of ["engineProfileId", "roiContour", "doRecording", "protocol"]) {
-      expect(note, f).toContain(f);
-    }
+    expect(note).toContain("required list above is corrected");
     expect(note).toContain("ivedaai_add_camera");
+    // And the names really are carried by the schema rather than dropped.
+    for (const f of ["engineProfileId", "roiContour", "doRecording", "protocol"]) {
+      expect(schemaDefinitions(ctx.spec).CameraRequest.required, f).toContain(f);
+    }
   });
 
   it("tells a reader of the camera list how to see the current state", () => {
@@ -2313,5 +2322,54 @@ describe("upload paths", () => {
 
   it("refuses an empty path", () => {
     expect(() => resolveUploadPath("   ", open)).toThrow(/empty/);
+  });
+});
+
+/**
+ * `required` is the one part of a request schema a caller trusts without testing.
+ *
+ * `CameraRequest` declares only `cameraType`, and a body carrying exactly that is
+ * refused: measured 2026-08-17, a 400 naming engineProfileId, roiContour,
+ * doRecording and protocol, with nothing persisted. So the single line a caller
+ * relies on to avoid a failed call was the line causing it.
+ */
+describe("confirmed required fields", () => {
+  const ctxReq = loadSwagger();
+  const cameraRequest = schemaDefinitions(ctxReq.spec).CameraRequest;
+
+  it("names every field the deployment enforces", () => {
+    for (const field of ["cameraType", "engineProfileId", "roiContour", "doRecording", "protocol"]) {
+      expect(cameraRequest.required, field).toContain(field);
+    }
+  });
+
+  it("claims nothing that was not measured", () => {
+    // 9.3 also required these six. The measured body omitted all of them and the
+    // server did not complain, so they are optional now — and `name` is absent
+    // because that body supplied it, leaving its omission untested.
+    for (const field of ["floorPlanAngle", "floorPlanId", "floorPlanX", "floorPlanY", "latitude", "longitude", "name"]) {
+      expect(cameraRequest.required, field).not.toContain(field);
+    }
+  });
+
+  it("only ever adds to what the document declares", () => {
+    // A correction that dropped a spec-declared requirement would be a
+    // regression wearing the clothes of a fix.
+    const raw = JSON.parse(
+      readFileSync(new URL("../resources/openapi.json", import.meta.url), "utf8")
+    ).components.schemas.CameraRequest.required as string[];
+    for (const field of raw) {
+      expect(cameraRequest.required, field).toContain(field);
+    }
+  });
+
+  it("corrects only fields the schema actually defines", () => {
+    // Naming a required field that does not exist would be a worse error than
+    // the one being corrected.
+    for (const [name, fields] of Object.entries(CONFIRMED_REQUIRED_FIELDS)) {
+      const schema = schemaDefinitions(ctxReq.spec)[name];
+      expect(schema, name).toBeDefined();
+      for (const f of fields) expect(Object.keys(schema.properties ?? {}), `${name}.${f}`).toContain(f);
+    }
   });
 });
