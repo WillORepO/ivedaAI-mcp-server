@@ -4,6 +4,82 @@ import { dirname, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+/**
+ * A parsed JSON document, and the narrowing that goes with it.
+ *
+ * The OpenAPI document really is untyped at the boundary — it is whatever was
+ * in a file — and this module used to say so with `any`. That is honest about
+ * the input and dishonest about everything after it: `spec.paths.foo.bar`
+ * type-checks against `any` no matter how wrong it is, so a malformed document
+ * produced an undefined at some unrelated call site rather than an error where
+ * it was read.
+ *
+ * `JsonValue` says the same thing while keeping the compiler switched on, and
+ * `asObject` is the one narrowing this file needs: everything here walks a tree
+ * of maps, so "is this a map, or was the document not shaped the way I assumed"
+ * is the only question being asked.
+ */
+export type JsonValue = string | number | boolean | null | JsonValue[] | JsonObject;
+export interface JsonObject {
+  [key: string]: JsonValue | undefined;
+}
+
+/**
+ * The JSON Schema keywords this codebase actually reads.
+ *
+ * A named type rather than `unknown` plus a narrowing at every access, because
+ * these fields are read constantly and the shape is genuinely known — it is
+ * JSON Schema, not an open-world blob. The one honest cast is at the boundary
+ * where a `JsonValue` from the document becomes a schema; everything downstream
+ * is checked.
+ *
+ * Deliberately partial: adding a keyword here means something reads it.
+ */
+export interface SchemaNode {
+  $ref?: string;
+  type?: string;
+  format?: string;
+  description?: string;
+  enum?: JsonValue[];
+  items?: SchemaNode;
+  properties?: Record<string, SchemaNode>;
+  required?: string[];
+  additionalProperties?: SchemaNode | boolean;
+  default?: JsonValue;
+}
+
+/** A raw OpenAPI 3 parameter object, as far as this loader reads one. */
+export interface RawParameter {
+  name?: string;
+  in?: string;
+  required?: boolean;
+  description?: string;
+  style?: string;
+  explode?: boolean;
+  schema?: SchemaNode;
+}
+
+/** A document value read as a parameter. */
+export function asParameter(value: unknown): RawParameter | undefined {
+  return asObject(value) as RawParameter | undefined;
+}
+
+/** A document value read as a schema. The single cast, named so it is greppable. */
+export function asSchema(value: unknown): SchemaNode | undefined {
+  return asObject(value) as SchemaNode | undefined;
+}
+
+/** The value as a map, or undefined when it is anything else. */
+export function asObject(value: unknown): JsonObject | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as JsonObject) : undefined;
+}
+
+/** The map's entries, or none when the value is not a map. */
+export function objectEntries(value: unknown): Array<[string, JsonValue]> {
+  const o = asObject(value);
+  return o ? (Object.entries(o).filter(([, v]) => v !== undefined) as Array<[string, JsonValue]>) : [];
+}
+
 export type ParamLocation = "path" | "query" | "header" | "body" | "formData";
 
 export interface ParamDef {
@@ -14,9 +90,9 @@ export interface ParamDef {
   format?: string;
   description?: string;
   enum?: string[];
-  items?: any;
+  items?: SchemaNode;
   collectionFormat?: string;
-  schema?: any;
+  schema?: SchemaNode;
   default?: unknown;
 }
 
@@ -40,7 +116,7 @@ export interface TagGroup {
 }
 
 export interface SwaggerContext {
-  spec: any;
+  spec: JsonObject;
   /** Whether deployment findings measured against the bundled spec may be applied. */
   useBundledFindings: boolean;
   basePath: string;
@@ -164,12 +240,12 @@ export const CONFIRMED_REQUIRED_FIELDS: Record<string, string[]> = {
  * the tool descriptions, `ivedaai_get_schema`, and the generated `docs/TOOLS.md`
  * would otherwise be free to disagree about the same schema.
  */
-function correctSchemaRequirements(spec: any, useBundledFindings: boolean): void {
+function correctSchemaRequirements(spec: JsonObject, useBundledFindings: boolean): void {
   if (!useBundledFindings) return;
-  const schemas = spec?.components?.schemas;
+  const schemas = asObject(asObject(spec.components)?.schemas);
   if (!schemas) return;
   for (const [name, confirmed] of Object.entries(CONFIRMED_REQUIRED_FIELDS)) {
-    const schema = schemas[name];
+    const schema = asSchema(schemas[name]);
     if (!schema) continue;
     const declared: string[] = Array.isArray(schema.required) ? schema.required : [];
     const properties = schema.properties ?? {};
@@ -197,7 +273,7 @@ function correctedParameters(id: string, parameters: ParamDef[], useBundledFindi
   return renamed.filter((p) => !(p.in === "query" && INERT_PAGING_PARAMETERS.has(p.name)));
 }
 
-function loadRawSpec(): any {
+function loadRawSpec(): JsonObject {
   const path = process.env.IVEDAAI_SWAGGER_PATH ?? join(__dirname, "..", "resources", "openapi.json");
   const raw = readFileSync(path, "utf8");
   return JSON.parse(raw);
@@ -227,16 +303,17 @@ const V3_BASE_PATH = "/ainvr";
  * validation, the generated tool descriptions — reads the flat shape, so this is
  * where the two formats are reconciled rather than at each of those call sites.
  */
-function flattenV3Parameter(p: any): ParamDef {
-  const schema = p.schema ?? {};
+function flattenV3Parameter(raw: JsonValue | undefined): ParamDef {
+  const p = asParameter(raw) ?? {};
+  const schema: SchemaNode = p.schema ?? {};
   return {
-    name: p.name,
-    in: p.in,
+    name: p.name ?? "",
+    in: (p.in ?? "query") as ParamLocation,
     required: !!p.required,
     type: schema.type,
     format: schema.format,
     description: p.description,
-    enum: schema.enum ?? schema.items?.enum,
+    enum: (schema.enum ?? schema.items?.enum)?.map(String),
     items: schema.items,
     // 3.0 replaced `collectionFormat` with `style`/`explode`. For `style: form`,
     // `explode: true` repeats the key — which is exactly what 2.0 called `multi`,
@@ -263,16 +340,19 @@ function flattenV3Parameter(p: any): ParamDef {
  * file; a urlencoded body becomes formData parameters too, and is distinguished
  * only by `consumes`, which `request.ts` uses to decide the encoding.
  */
-function v3RequestBodyParams(requestBody: any): { params: ParamDef[]; consumes: string[] } {
-  const content = requestBody?.content ?? {};
+function v3RequestBodyParams(raw: JsonValue | undefined): { params: ParamDef[]; consumes: string[] } {
+  const requestBody = asObject(raw);
+  const content = asObject(requestBody?.content) ?? {};
   const mediaTypes = Object.keys(content);
   if (!mediaTypes.length) return { params: [], consumes: [] };
 
-  const required = !!requestBody.required;
+  const required = !!requestBody?.required;
+  const mediaSchema = (t: string): SchemaNode | undefined => asSchema(asObject(content[t])?.schema);
+  const bodyDescription = typeof requestBody?.description === "string" ? requestBody.description : undefined;
   const json = mediaTypes.find((t) => t.includes("json"));
   if (json) {
     return {
-      params: [{ name: "body", in: "body", required, schema: content[json].schema, description: requestBody.description }],
+      params: [{ name: "body", in: "body", required, schema: mediaSchema(json), description: bodyDescription }],
       consumes: mediaTypes,
     };
   }
@@ -304,15 +384,15 @@ function v3RequestBodyParams(requestBody: any): { params: ParamDef[]; consumes: 
     // Some other media type — an image upload, say. Model it as a body so the
     // operation stays callable rather than silently losing its payload.
     return {
-      params: [{ name: "body", in: "body", required, schema: content[mediaTypes[0]].schema }],
+      params: [{ name: "body", in: "body", required, schema: mediaSchema(mediaTypes[0]!) }],
       consumes: mediaTypes,
     };
   }
 
-  const schema = content[form].schema ?? {};
+  const schema: SchemaNode = mediaSchema(form) ?? {};
   const requiredFields = new Set<string>(schema.required ?? []);
   const location: ParamLocation = multipart ? "formData" : "query";
-  const params: ParamDef[] = Object.entries<any>(schema.properties ?? {}).map(([name, prop]) => ({
+  const params: ParamDef[] = Object.entries(schema.properties ?? {}).map(([name, prop]) => ({
     name,
     in: location,
     required: requiredFields.has(name),
@@ -321,7 +401,7 @@ function v3RequestBodyParams(requestBody: any): { params: ParamDef[]; consumes: 
     type: prop.format === "binary" ? "file" : prop.type,
     format: prop.format === "binary" ? undefined : prop.format,
     description: prop.description,
-    enum: prop.enum,
+    enum: prop.enum?.map(String),
     items: prop.items,
   }));
   return { params, consumes: mediaTypes };
@@ -343,11 +423,11 @@ function v3RequestBodyParams(requestBody: any): { params: ParamDef[]; consumes: 
  * Passing the wildcard through would replace a JSON-preferring header with one
  * that expresses no preference at all, on 236 operations.
  */
-function v3Produces(op: any): string[] {
+function v3Produces(op: JsonObject): string[] {
   const out = new Set<string>();
-  for (const [code, response] of Object.entries<any>(op.responses ?? {})) {
+  for (const [code, response] of objectEntries(op.responses ?? {})) {
     if (!/^2/.test(code)) continue;
-    for (const type of Object.keys(response?.content ?? {})) {
+    for (const type of Object.keys(asObject(response)?.content ?? {})) {
       if (type !== "*/*") out.add(type);
     }
   }
@@ -362,8 +442,8 @@ function v3Produces(op: any): string[] {
  * cost of that move was spread across four files. If 3.1 or a vendor variant
  * moves it again, this is the only line that has to know.
  */
-export function schemaDefinitions(spec: any): Record<string, any> {
-  return spec?.components?.schemas ?? {};
+export function schemaDefinitions(spec: JsonObject): Record<string, SchemaNode> {
+  return (asObject(asObject(spec.components)?.schemas) ?? {}) as Record<string, SchemaNode>;
 }
 
 /** The `$ref` string that addresses a named schema. */
@@ -384,10 +464,10 @@ export function stripBasePath(path: string): string {
 }
 
 /** The JSON request-body schema of a raw OpenAPI 3 operation, if it has one. */
-export function requestBodySchema(rawOp: any): any {
-  const content = rawOp?.requestBody?.content ?? {};
+export function requestBodySchema(rawOp: JsonValue | undefined): SchemaNode | undefined {
+  const content = asObject(asObject(asObject(rawOp)?.requestBody)?.content) ?? {};
   const json = Object.keys(content).find((t) => t.includes("json"));
-  return json ? content[json].schema : undefined;
+  return json ? asSchema(asObject(content[json])?.schema) : undefined;
 }
 
 /**
@@ -398,36 +478,41 @@ export function requestBodySchema(rawOp: any): any {
  * keying on the media type by name would find nothing for most operations. Takes
  * the first 2xx with a schema.
  */
-export function successResponseSchema(rawOp: any): any {
-  for (const [code, response] of Object.entries<any>(rawOp?.responses ?? {})) {
+export function successResponseSchema(rawOp: JsonValue | undefined): SchemaNode | undefined {
+  for (const [code, response] of objectEntries(asObject(rawOp)?.responses)) {
     if (!/^2/.test(code)) continue;
-    for (const media of Object.values<any>(response?.content ?? {})) {
-      if (media?.schema) return media.schema;
+    for (const [, media] of objectEntries(asObject(response)?.content)) {
+      const schema = asObject(media)?.schema;
+      if (schema) return asSchema(schema);
     }
   }
   return undefined;
 }
 
-export function resolveRef(spec: any, ref: string): any {
+export function resolveRef(spec: JsonObject, ref: string): SchemaNode | undefined {
   if (!ref.startsWith("#/")) return undefined;
-  const parts = ref.slice(2).split("/");
-  let node = spec;
-  for (const part of parts) {
-    if (node == null) return undefined;
-    node = node[part];
+  let node: JsonObject | undefined = spec;
+  for (const part of ref.slice(2).split("/")) {
+    if (!node) return undefined;
+    node = asObject(node[part]);
   }
-  return node;
+  return asSchema(node);
 }
 
 /** Resolves a schema node one level of $ref (does not recurse into nested $refs beyond `depth`). */
-export function resolveSchema(spec: any, schema: any, depth = 2): any {
-  if (!schema) return schema;
-  if (schema.$ref) {
-    const resolved = resolveRef(spec, schema.$ref);
-    if (!resolved) return schema;
+export function resolveSchema(
+  spec: JsonObject,
+  schema: JsonValue | SchemaNode | undefined,
+  depth = 2
+): SchemaNode | undefined {
+  const node = asSchema(schema);
+  if (!node) return undefined;
+  if (typeof node.$ref === "string") {
+    const resolved = resolveRef(spec, node.$ref);
+    if (!resolved) return node;
     return depth > 0 ? resolveSchema(spec, resolved, depth - 1) : resolved;
   }
-  return schema;
+  return node;
 }
 
 function buildOperationId(method: string, path: string): string {
@@ -467,9 +552,9 @@ export function loadSwagger(): SwaggerContext {
    * remembering to strip it: `roundTrip.ts` needed three separate fixes before
    * its ids lined up again, and each one failed silently rather than loudly.
    */
-  const spec = {
+  const spec: JsonObject = {
     ...raw,
-    paths: Object.fromEntries(Object.entries<any>(raw.paths ?? {}).map(([p, item]) => [stripBasePath(p), item])),
+    paths: Object.fromEntries(objectEntries(raw.paths).map(([p, item]) => [stripBasePath(p), item])),
   };
 
   const basePath = V3_BASE_PATH;
@@ -478,7 +563,9 @@ export function loadSwagger(): SwaggerContext {
   // context keeps its shape for callers that report it.
   let host = "";
   let schemes: string[] = ["http"];
-  const serverUrl: string | undefined = spec.servers?.[0]?.url;
+  const servers = spec.servers;
+  const firstServer = Array.isArray(servers) ? asObject(servers[0]) : undefined;
+  const serverUrl = typeof firstServer?.url === "string" ? firstServer.url : undefined;
   if (serverUrl) {
     try {
       const parsed = new URL(serverUrl);
@@ -493,20 +580,24 @@ export function loadSwagger(): SwaggerContext {
   const byTag = new Map<string, Operation[]>();
 
   // Already stripped above, so ids come out as `METHOD /api/...` — see V3_BASE_PATH.
-  for (const [path, methods] of Object.entries<any>(spec.paths ?? {})) {
-    for (const [method, op] of Object.entries<any>(methods)) {
+  for (const [path, methods] of objectEntries(spec.paths ?? {})) {
+    for (const [method, rawOp] of objectEntries(methods)) {
       if (!HTTP_METHODS.includes(method)) continue;
-      const tag: string = (op.tags && op.tags[0]) || "Untagged";
+      const op = asObject(rawOp);
+      if (!op) continue;
+      const tags = op.tags;
+      const tag: string = (Array.isArray(tags) && typeof tags[0] === "string" ? tags[0] : undefined) ?? "Untagged";
       const id = buildOperationId(method, path);
       const { params: bodyParams, consumes } = v3RequestBodyParams(op.requestBody);
-      const parameters = [...(op.parameters ?? []).map(flattenV3Parameter), ...bodyParams];
+      const declared = Array.isArray(op.parameters) ? op.parameters : [];
+      const parameters = [...declared.map(flattenV3Parameter), ...bodyParams];
       const operation: Operation = {
         id,
         method: method.toUpperCase(),
         path,
-        operationId: op.operationId,
-        summary: op.summary,
-        description: op.description,
+        operationId: typeof op.operationId === "string" ? op.operationId : undefined,
+        summary: typeof op.summary === "string" ? op.summary : undefined,
+        description: typeof op.description === "string" ? op.description : undefined,
         tag,
         parameters: correctedParameters(id, parameters, useBundledFindings),
         consumes: consumes.length ? consumes : undefined,

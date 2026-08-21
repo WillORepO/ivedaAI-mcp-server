@@ -49,6 +49,7 @@
  */
 
 import { updateSemantics } from "./partialUpdate.js";
+import { asObject, objectEntries, type JsonObject, type SchemaNode } from "./swagger.js";
 import { schemaDefinitions, requestBodySchema, successResponseSchema } from "./swagger.js";
 
 /** Where a request field's value actually appears in the read response. */
@@ -248,11 +249,11 @@ function refName(ref: string | undefined): string | undefined {
   return ref ? ref.split("/").pop() : undefined;
 }
 
-function schemaRefOf(schema: any): string | undefined {
-  return refName(schema?.$ref);
+function schemaRefOf(schema: SchemaNode | undefined): string | undefined {
+  return refName(typeof schema?.$ref === "string" ? schema.$ref : undefined);
 }
 
-function propsOf(spec: any, defName: string | undefined): string[] | undefined {
+function propsOf(spec: JsonObject, defName: string | undefined): string[] | undefined {
   if (!defName) return undefined;
   const def = schemaDefinitions(spec)[defName];
   if (!def?.properties) return undefined;
@@ -264,7 +265,7 @@ function propsOf(spec: any, defName: string | undefined): string[] | undefined {
  * definition, so a resource readable only through its collection endpoint still
  * counts as readable.
  */
-function itemDefOf(spec: any, defName: string | undefined): string | undefined {
+function itemDefOf(spec: JsonObject, defName: string | undefined): string | undefined {
   if (!defName) return undefined;
   const content = schemaDefinitions(spec)[defName]?.properties?.content;
   if (content?.type === "array" && content.items?.$ref) return refName(content.items.$ref);
@@ -281,10 +282,10 @@ function itemDefOf(spec: any, defName: string | undefined): string | undefined {
  * `GET /api/user-groups` and which the lossy-update guard already tells callers
  * to fetch and resend.
  */
-function findReadFor(spec: any, path: string): { readOp: string; defName: string } | undefined {
+function findReadFor(spec: JsonObject, path: string): { readOp: string; defName: string } | undefined {
   const candidates = [path, path.replace(/\/\{[^}]+\}$/, "")];
   for (const candidate of candidates) {
-    const get = spec.paths?.[candidate]?.get;
+    const get = asObject(asObject(spec.paths)?.[candidate])?.get;
     if (!get) continue;
     const defName = itemDefOf(spec, schemaRefOf(successResponseSchema(get)));
     if (defName && propsOf(spec, defName)) return { readOp: `GET ${candidate}`, defName };
@@ -293,12 +294,12 @@ function findReadFor(spec: any, path: string): { readOp: string; defName: string
 }
 
 /** Derives the read/write gap for every body-taking update operation in the spec. */
-export function computeRoundTripGaps(spec: any): Record<string, RoundTripGap> {
+export function computeRoundTripGaps(spec: JsonObject): Record<string, RoundTripGap> {
   const gaps: Record<string, RoundTripGap> = {};
 
-  for (const [path, pathItem] of Object.entries<any>(spec.paths ?? {})) {
+  for (const [path, pathItem] of objectEntries(spec.paths)) {
     for (const method of ["put", "patch"]) {
-      const op = pathItem[method];
+      const op = asObject(pathItem)?.[method];
       if (!op) continue;
 
       const opId = `${method.toUpperCase()} ${path}`;

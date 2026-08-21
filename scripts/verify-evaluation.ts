@@ -17,7 +17,7 @@
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { loadSwagger, schemaDefinitions, tagToToolName } from "../src/swagger.js";
+import { loadSwagger, schemaDefinitions, tagToToolName, asObject } from "../src/swagger.js";
 import { allowedOperations, type AccessPolicy } from "../src/accessPolicy.js";
 import { TRIGGER_TYPES } from "../src/alertTrigger.js";
 
@@ -182,4 +182,5 @@ if (failures > 0) {
   );
   process.exit(1);
 }
-console.log(`All ${pairs.length} answers still hold against IvedaAI ${ctx.spec.info?.version}.`);
+const specVersion = asObject(ctx.spec.info)?.version;
+console.log(`All ${pairs.length} answers still hold against IvedaAI ${specVersion}.`);
