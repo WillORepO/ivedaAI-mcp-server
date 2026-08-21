@@ -121,6 +121,65 @@ const INERT_PAGING_PARAMETERS = new Set([
   "sort.unsorted",
 ]);
 
+/**
+ * Required request fields the generated document understates.
+ *
+ * Same bar as `CONFIRMED_QUERY_PARAMETER_NAMES`: measured against a live 10.0
+ * server, never inferred. Understating `required` is worse than saying nothing,
+ * because `required` is the one part of a request schema a caller trusts without
+ * testing — it is what a code generator emits as mandatory arguments, and what
+ * this server prints to tell a model the minimum viable body.
+ *
+ * `CameraRequest` declares `required: ["cameraType"]`. A body carrying exactly
+ * that was refused on 2026-08-17:
+ *
+ *     400 MethodArgumentNotValidException
+ *     [engineProfileId (null) must not be null, roiContour (null) must not be null,
+ *      doRecording (null) must not be null, protocol (null) must not be null]
+ *
+ * Nothing was persisted — the camera count was 71 before and after — so the
+ * failure is validation rather than a partial create.
+ *
+ * Corroborated by the archived 9.3 document, which marked all five of these
+ * required. 9.3 additionally required `floorPlanAngle`, `floorPlanId`,
+ * `floorPlanX`, `floorPlanY`, `latitude` and `longitude`; the measured body
+ * omitted all six and the server did not complain, so they are genuinely
+ * optional now and are deliberately absent here.
+ *
+ * `name` is the one 9.3 required that remains untested: the measured body
+ * supplied it, so its omission was never exercised. A later attempt to close
+ * that gap could not run — the deployment's licence went invalid and the whole
+ * API began answering 403. Left out rather than guessed at; a required field
+ * listed on suspicion would cost a caller a mandatory argument they do not need.
+ *
+ * Unioned with whatever the document declares rather than replacing it, so a
+ * future spec that adds a requirement keeps it.
+ */
+export const CONFIRMED_REQUIRED_FIELDS: Record<string, string[]> = {
+  CameraRequest: ["cameraType", "engineProfileId", "roiContour", "doRecording", "protocol"],
+};
+
+/**
+ * Applied to the loaded document itself, so every consumer sees one answer:
+ * the tool descriptions, `ivedaai_get_schema`, and the generated `docs/TOOLS.md`
+ * would otherwise be free to disagree about the same schema.
+ */
+function correctSchemaRequirements(spec: any, useBundledFindings: boolean): void {
+  if (!useBundledFindings) return;
+  const schemas = spec?.components?.schemas;
+  if (!schemas) return;
+  for (const [name, confirmed] of Object.entries(CONFIRMED_REQUIRED_FIELDS)) {
+    const schema = schemas[name];
+    if (!schema) continue;
+    const declared: string[] = Array.isArray(schema.required) ? schema.required : [];
+    const properties = schema.properties ?? {};
+    // Only fields the schema actually defines: naming a required field that does
+    // not exist would be a worse error than the one being corrected.
+    const merged = [...new Set([...declared, ...confirmed.filter((f) => f in properties)])];
+    schema.required = merged.sort();
+  }
+}
+
 function correctedParameters(id: string, parameters: ParamDef[], useBundledFindings: boolean): ParamDef[] {
   if (!useBundledFindings) return parameters;
 
@@ -389,6 +448,7 @@ export function loadSwagger(): SwaggerContext {
   // An operator-supplied spec is authoritative for its own deployment.
   const useBundledFindings = process.env.IVEDAAI_SWAGGER_PATH === undefined;
   const raw = loadRawSpec();
+  correctSchemaRequirements(raw, useBundledFindings);
   if (typeof raw.openapi !== "string") {
     throw new Error(
       `expected an OpenAPI 3 document, got ${raw.swagger ? `Swagger ${raw.swagger}` : "an unrecognised format"}. ` +

@@ -29,19 +29,22 @@
  * narrower operation, rather than describing behaviour nobody has run.
  *
  * `POST /api/cameras` is here for a different reason: its documented contract is
- * wrong, and this server prints the wrong part faithfully. The spec declares
- * `CameraRequest.required` as `["cameraType"]`, so the tool description says
- * `required: cameraType` — and a body with just that comes back 400:
+ * wrong. The spec declares `CameraRequest.required` as `["cameraType"]`, and a
+ * body with just that comes back 400:
  *
  *     [engineProfileId (null) must not be null, roiContour (null) must not be null,
  *      doRecording (null) must not be null, protocol (null) must not be null]
  *
  * Measured, along with the fact that nothing is persisted when it fails. The
- * error is legible, which is the redeeming part, but a caller reaches it only by
- * trying — and `ivedaai_add_camera` already exists to handle this and is not
- * mentioned anywhere a caller of the generic tool would look. Worth noting that
- * `CameraRequest` is the outlier here: of the 35 request schemas that declare
- * required fields at all, the rest look right.
+ * four names are no longer carried here: `CONFIRMED_REQUIRED_FIELDS` in
+ * `swagger.ts` corrects the schema itself, so the description's own required
+ * list now states them and repeating them in prose would be a second place to
+ * go stale. What the note still earns is the part a corrected list cannot say —
+ * that the published spec disagrees, that creating a record does not start the
+ * camera, and that `ivedaai_add_camera` exists and is not mentioned anywhere a
+ * caller of the generic tool would look. Worth noting that `CameraRequest` is
+ * the outlier: of the 35 request schemas that declare required fields at all,
+ * the rest look right.
  *
  * The activation note also carries the asymmetry between its two directions,
  * because both surprises land on whoever sets several cameras at once:
@@ -109,11 +112,11 @@ export const CAPABILITY_NOTES: Record<string, string> = {
     'camera rather than to retry or to change the arguments.',
 
   "POST /api/cameras":
-    'NOTE: the spec marks only "cameraType" required, and that is not enough — the API also rejects a body ' +
-    'missing "engineProfileId", "roiContour", "doRecording" or "protocol", with a 400 naming them and no ' +
-    "record created. Creating the record does not start the camera either; it stays Idle until activated. " +
-    "For onboarding a real camera prefer the ivedaai_add_camera tool, which supplies these and the other " +
-    "defaults, activates the camera, and cleans up after a partial create.",
+    "NOTE: the required list above is corrected — the published spec marks only \"cameraType\", and a body " +
+    "carrying just that is refused with a 400 naming the other four and no record created. Creating the " +
+    "record does not start the camera either; it stays Idle until activated. For onboarding a real camera " +
+    "prefer the ivedaai_add_camera tool, which supplies these and the other defaults, activates the camera, " +
+    "and cleans up after a partial create.",
 
   "GET /api/cameras":
     'NOTE: isActivate filters on whether a camera is actively processing. The camera record carries no ' +
