@@ -283,6 +283,54 @@ describe("body schemas in tool descriptions", () => {
   });
 });
 
+describe("enums cut short in tool descriptions", () => {
+  // A truncated enum used to render exactly like a complete one. The
+  // evaluation suite caught what that costs: shown alertTypes (24 values) and
+  // eventTypes (12) both cut to the same 8, the model reported the two sets as
+  // "documented identically", which is the wrong answer to a question whose
+  // real answer is 12. A missing fact is recoverable; a confidently wrong one
+  // is not.
+  it("says how many values it cut", () => {
+    const group = ctx.tags.find((t) => t.tag === "Alert")!;
+    const text = describeTag(ctx.spec, group);
+    expect(text).toContain("CAMERA_ABNORMAL");
+    // The alertTypes query parameter declares 12 values and 8 are shown. (The
+    // AlertQuery *schema* carries 24, but body schemas are traded away to
+    // ivedaai_get_schema, so that one is not rendered here.)
+    expect(text).toContain("|+4 more");
+  });
+
+  it("marks every enum it cuts, and marks no enum it does not", () => {
+    // The pairing is the guard, not the marker on its own: a marker on a
+    // complete enum would be its own lie. Driven from the parameter
+    // definitions rather than from the rendering, so this cannot agree with
+    // a broken renderer the way a self-comparison would.
+    let cut = 0;
+    let whole = 0;
+    for (const group of ctx.tags) {
+      const text = describeTag(ctx.spec, group);
+      for (const op of group.operations) {
+        for (const p of op.parameters) {
+          if (!p.enum || p.enum.length === 0) continue;
+          const head = p.enum.slice(0, 8).join("|");
+          if (!text.includes(head)) continue;
+          const where = op.id + " " + p.name;
+          if (p.enum.length > 8) {
+            expect(text, where).toContain(head + "|+" + (p.enum.length - 8) + " more");
+            cut++;
+          } else {
+            expect(text.includes(head + "|+"), where).toBe(false);
+            whole++;
+          }
+        }
+      }
+    }
+    // Both branches must actually run, or this passes by never asserting.
+    expect(cut).toBeGreaterThan(0);
+    expect(whole).toBeGreaterThan(0);
+  });
+});
+
 describe("tagToToolName", () => {
   it("slugifies tags into prefixed snake_case", () => {
     expect(tagToToolName("Camera")).toBe("ivedaai_camera");

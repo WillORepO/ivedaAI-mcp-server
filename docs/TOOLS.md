@@ -259,7 +259,7 @@ _No parameters._
 
 #### `POST /api/alerts/_search` — Search alerts
 
-**Body:** `{ ainvrIds?:integer[], alertRuleIds?:string[], alertTypes?:enum[](CAMERA_ABNORMAL|CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|HUMAN_ATTRIBUTE|IDENTITY_RECOGNITION|ILLEGAL_PARKING), allCameras?:boolean, audit?:boolean, cameraIds?:integer[], end?:string, page?:integer, pairs?:AlertWithCamera[], size?:integer, sort?:string[], start?:string, states?:enum[](InProgress|Resolved|Unresolved) }`
+**Body:** `{ ainvrIds?:integer[], alertRuleIds?:string[], alertTypes?:enum[](CAMERA_ABNORMAL|CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|HUMAN_ATTRIBUTE|IDENTITY_RECOGNITION|ILLEGAL_PARKING|+16 more), allCameras?:boolean, audit?:boolean, cameraIds?:integer[], end?:string, page?:integer, pairs?:AlertWithCamera[], size?:integer, sort?:string[], start?:string, states?:enum[](InProgress|Resolved|Unresolved) }`
 
 #### `DELETE /api/alerts/{alertId}` — Delete alert by id
 
@@ -287,7 +287,7 @@ _No parameters._
 
 #### `POST /api/alerts/latest` — Query latest alerts
 
-**Body:** `{ ainvrIds?:integer[], alertRuleIds?:string[], alertTypes?:enum[](CAMERA_ABNORMAL|CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|HUMAN_ATTRIBUTE|IDENTITY_RECOGNITION|ILLEGAL_PARKING), allCameras?:boolean, audit?:boolean, cameraIds?:integer[], end?:string, page?:integer, pairs?:AlertWithCamera[], size?:integer, sort?:string[], start?:string, states?:enum[](InProgress|Resolved|Unresolved) }`
+**Body:** `{ ainvrIds?:integer[], alertRuleIds?:string[], alertTypes?:enum[](CAMERA_ABNORMAL|CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|HUMAN_ATTRIBUTE|IDENTITY_RECOGNITION|ILLEGAL_PARKING|+16 more), allCameras?:boolean, audit?:boolean, cameraIds?:integer[], end?:string, page?:integer, pairs?:AlertWithCamera[], size?:integer, sort?:string[], start?:string, states?:enum[](InProgress|Resolved|Unresolved) }`
 
 #### `POST /api/alerts/pairs` — Find alerts with rule with camera pars
 
@@ -299,7 +299,7 @@ _No parameters._
 |---|---|---|---|---|
 | `by` | query | **yes** | string | by. — one of: camera, day, hour, minute, month, rule, state, type |
 
-**Body:** `{ ainvrIds?:integer[], alertRuleIds?:string[], alertTypes?:enum[](CAMERA_ABNORMAL|CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|HUMAN_ATTRIBUTE|IDENTITY_RECOGNITION|ILLEGAL_PARKING), allCameras?:boolean, audit?:boolean, cameraIds?:integer[], end?:string, page?:integer, pairs?:AlertWithCamera[], size?:integer, sort?:string[], start?:string, states?:enum[](InProgress|Resolved|Unresolved) }`
+**Body:** `{ ainvrIds?:integer[], alertRuleIds?:string[], alertTypes?:enum[](CAMERA_ABNORMAL|CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|HUMAN_ATTRIBUTE|IDENTITY_RECOGNITION|ILLEGAL_PARKING|+16 more), allCameras?:boolean, audit?:boolean, cameraIds?:integer[], end?:string, page?:integer, pairs?:AlertWithCamera[], size?:integer, sort?:string[], start?:string, states?:enum[](InProgress|Resolved|Unresolved) }`
 
 ## ivedaai_alert_rule
 
@@ -322,7 +322,7 @@ _No parameters._
 
 #### `POST /api/alertRules` — Create alert rule
 
-**Body:** `{ abnormalTypes?:enum[](Abnormal|Disconnect|Normal|ResolutionChange), alertType?:enum(CAMERA_ABNORMAL|CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|INTRUSION|LPR|OBJECT_COUNTING), cameraIds?:integer[], cooldownInterval?:integer, countingRule?:CountingRule, description?:string, enableForever?:boolean, faceCategoryIds?:string[], hashtags?:string[], idrAccess?:enum(All|Denied|Granted), isEnabled?:boolean, lineIds?:integer[], lprCategoryIds?:string[], lprTypes?:LPRType[], name?:string, personTypes?:PersonType[], roiIds?:integer[], roiTypes?:RoiTypeReq[], trigger?:AlertTrigger, typeLogic?:enum(and|or), weekdays?:Weekday[] }`
+**Body:** `{ abnormalTypes?:enum[](Abnormal|Disconnect|Normal|ResolutionChange), alertType?:enum(CAMERA_ABNORMAL|CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|INTRUSION|LPR|OBJECT_COUNTING|+4 more), cameraIds?:integer[], cooldownInterval?:integer, countingRule?:CountingRule, description?:string, enableForever?:boolean, faceCategoryIds?:string[], hashtags?:string[], idrAccess?:enum(All|Denied|Granted), isEnabled?:boolean, lineIds?:integer[], lprCategoryIds?:string[], lprTypes?:LPRType[], name?:string, personTypes?:PersonType[], roiIds?:integer[], roiTypes?:RoiTypeReq[], trigger?:AlertTrigger, typeLogic?:enum(and|or), weekdays?:Weekday[] }`
 
 #### `DELETE /api/alertRules/{alertRuleId}` — Delete alert rule by id
 
@@ -342,7 +342,7 @@ _No parameters._
 |---|---|---|---|---|
 | `alertRuleId` | path | **yes** | string | alertRuleId. |
 
-**Body:** `{ abnormalTypes?:enum[](Abnormal|Disconnect|Normal|ResolutionChange), alertType?:enum(CAMERA_ABNORMAL|CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|INTRUSION|LPR|OBJECT_COUNTING), cameraIds?:integer[], cooldownInterval?:integer, countingRule?:CountingRule, description?:string, enableForever?:boolean, faceCategoryIds?:string[], hashtags?:string[], idrAccess?:enum(All|Denied|Granted), isEnabled?:boolean, lineIds?:integer[], lprCategoryIds?:string[], lprTypes?:LPRType[], name?:string, personTypes?:PersonType[], roiIds?:integer[], roiTypes?:RoiTypeReq[], trigger?:AlertTrigger, typeLogic?:enum(and|or), weekdays?:Weekday[] }`
+**Body:** `{ abnormalTypes?:enum[](Abnormal|Disconnect|Normal|ResolutionChange), alertType?:enum(CAMERA_ABNORMAL|CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|INTRUSION|LPR|OBJECT_COUNTING|+4 more), cameraIds?:integer[], cooldownInterval?:integer, countingRule?:CountingRule, description?:string, enableForever?:boolean, faceCategoryIds?:string[], hashtags?:string[], idrAccess?:enum(All|Denied|Granted), isEnabled?:boolean, lineIds?:integer[], lprCategoryIds?:string[], lprTypes?:LPRType[], name?:string, personTypes?:PersonType[], roiIds?:integer[], roiTypes?:RoiTypeReq[], trigger?:AlertTrigger, typeLogic?:enum(and|or), weekdays?:Weekday[] }`
 
 > ⚠️ NOTE: GET /api/alertRules/{alertRuleId} returns these fields under a different key — cameraIds → condition (JSON string).cameras, cooldownInterval → condition (JSON string).cooldownInterval, enableForever → schedule.forever, hashtags → condition (JSON string).hashtags, name → alertName, roiIds → condition (JSON string).roiIds, typeLogic → condition (JSON string).typeLogic, weekdays → schedule.weekdays. This endpoint has been confirmed to leave omitted fields alone, so this is for reading the value, not a warning about losing it. NOTE: "abnormalTypes", "countingRule", "faceCategoryIds", "idrAccess", "lineIds", "lprCategoryIds", "lprTypes", "personTypes", "roiTypes" have no known equivalent in GET /api/alertRules/{alertRuleId}, so they cannot be read back — but this endpoint keeps omitted fields, so they survive an update that leaves them out.
 
@@ -352,7 +352,7 @@ _No parameters._
 |---|---|---|---|---|
 | `alertRuleId` | path | **yes** | string | alertRuleId. |
 
-**Body:** `{ abnormalTypes?:enum[](Abnormal|Disconnect|Normal|ResolutionChange), alertType?:enum(CAMERA_ABNORMAL|CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|INTRUSION|LPR|OBJECT_COUNTING), cameraIds?:integer[], cooldownInterval?:integer, countingRule?:CountingRule, description?:string, enableForever?:boolean, faceCategoryIds?:string[], hashtags?:string[], idrAccess?:enum(All|Denied|Granted), isEnabled?:boolean, lineIds?:integer[], lprCategoryIds?:string[], lprTypes?:LPRType[], name?:string, personTypes?:PersonType[], roiIds?:integer[], roiTypes?:RoiTypeReq[], trigger?:AlertTrigger, typeLogic?:enum(and|or), weekdays?:Weekday[] }`
+**Body:** `{ abnormalTypes?:enum[](Abnormal|Disconnect|Normal|ResolutionChange), alertType?:enum(CAMERA_ABNORMAL|CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|INTRUSION|LPR|OBJECT_COUNTING|+4 more), cameraIds?:integer[], cooldownInterval?:integer, countingRule?:CountingRule, description?:string, enableForever?:boolean, faceCategoryIds?:string[], hashtags?:string[], idrAccess?:enum(All|Denied|Granted), isEnabled?:boolean, lineIds?:integer[], lprCategoryIds?:string[], lprTypes?:LPRType[], name?:string, personTypes?:PersonType[], roiIds?:integer[], roiTypes?:RoiTypeReq[], trigger?:AlertTrigger, typeLogic?:enum(and|or), weekdays?:Weekday[] }`
 
 > ⚠️ NOTE: GET /api/alertRules/{alertRuleId} returns these fields under a different key — cameraIds → condition (JSON string).cameras, cooldownInterval → condition (JSON string).cooldownInterval, enableForever → schedule.forever, hashtags → condition (JSON string).hashtags, name → alertName, roiIds → condition (JSON string).roiIds, typeLogic → condition (JSON string).typeLogic, weekdays → schedule.weekdays. This endpoint refuses partial bodies outright, so the full object is required regardless. NOTE: "abnormalTypes", "countingRule", "faceCategoryIds", "idrAccess", "lineIds", "lprCategoryIds", "lprTypes", "personTypes", "roiTypes" have no known equivalent in GET /api/alertRules/{alertRuleId}, so they cannot be read back — but this endpoint refuses partial bodies, so an update omitting them fails rather than resetting anything.
 
@@ -428,7 +428,7 @@ _No parameters._
 
 #### `POST /api/auditTrails` — create audit trails
 
-**Body:** `{ action*:enum(ACTIVATE|ADD|BATCH_DELETE|CANCEL|DEACTIVATE|DELETE|DISABLE|DOWNLOAD), message*:string, objectId?:integer, objectType*:string }`
+**Body:** `{ action*:enum(ACTIVATE|ADD|BATCH_DELETE|CANCEL|DEACTIVATE|DELETE|DISABLE|DOWNLOAD|+20 more), message*:string, objectId?:integer, objectType*:string }`
 
 ## ivedaai_authentication
 
@@ -479,7 +479,7 @@ _No parameters._
 |---|---|---|---|---|
 | `ainvrId` | query | no | integer | integer. |
 
-**Body:** `{ account?:string, cameraType*:enum(App|External|Footage|General|Onvif|RecordedAnalytic|VideoSource), description?:string, detectionMode?:string, doRecording*:boolean, engineConfig?:EngineConfig, engineProfileId*:integer, externalMeta?:ExternalMeta, floorPlanAngle?:integer, floorPlanId?:string, floorPlanX?:number, floorPlanY?:number, frameRate?:number, gpuId?:integer, hwDecode?:boolean, ip?:string, latitude?:number, locationType?:enum(GPS_MAP|INDOOR_MAP|NONE), longitude?:number, manufacturer?:string, model?:string, name?:string, nvrChannel?:string, nvrId?:string, password?:string, plugins?:enum(AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine), port?:integer, protocol*:enum(Both|TCP|UDP), resolution?:string, roiContour*:VoContour[], schedule?:Schedule, streamUrl?:string }`
+**Body:** `{ account?:string, cameraType*:enum(App|External|Footage|General|Onvif|RecordedAnalytic|VideoSource), description?:string, detectionMode?:string, doRecording*:boolean, engineConfig?:EngineConfig, engineProfileId*:integer, externalMeta?:ExternalMeta, floorPlanAngle?:integer, floorPlanId?:string, floorPlanX?:number, floorPlanY?:number, frameRate?:number, gpuId?:integer, hwDecode?:boolean, ip?:string, latitude?:number, locationType?:enum(GPS_MAP|INDOOR_MAP|NONE), longitude?:number, manufacturer?:string, model?:string, name?:string, nvrChannel?:string, nvrId?:string, password?:string, plugins?:enum(AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine|+17 more), port?:integer, protocol*:enum(Both|TCP|UDP), resolution?:string, roiContour*:VoContour[], schedule?:Schedule, streamUrl?:string }`
 
 > ⚠️ NOTE: the required list above is corrected — the published spec marks only "cameraType", and a body carrying just that is refused with a 400 naming the other four and no record created. Creating the record does not start the camera either; it stays Idle until activated. For onboarding a real camera prefer the ivedaai_add_camera tool, which supplies these and the other defaults, activates the camera, and cleans up after a partial create.
 
@@ -503,7 +503,7 @@ _No parameters._
 |---|---|---|---|---|
 | `cameraId` | path | **yes** | integer | cameraId. |
 
-**Body:** `{ account?:string, cameraType*:enum(App|External|Footage|General|Onvif|RecordedAnalytic|VideoSource), description?:string, detectionMode?:string, doRecording*:boolean, engineConfig?:EngineConfig, engineProfileId*:integer, externalMeta?:ExternalMeta, floorPlanAngle?:integer, floorPlanId?:string, floorPlanX?:number, floorPlanY?:number, frameRate?:number, gpuId?:integer, hwDecode?:boolean, ip?:string, latitude?:number, locationType?:enum(GPS_MAP|INDOOR_MAP|NONE), longitude?:number, manufacturer?:string, model?:string, name?:string, nvrChannel?:string, nvrId?:string, password?:string, plugins?:enum(AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine), port?:integer, protocol*:enum(Both|TCP|UDP), resolution?:string, roiContour*:VoContour[], schedule?:Schedule, streamUrl?:string }`
+**Body:** `{ account?:string, cameraType*:enum(App|External|Footage|General|Onvif|RecordedAnalytic|VideoSource), description?:string, detectionMode?:string, doRecording*:boolean, engineConfig?:EngineConfig, engineProfileId*:integer, externalMeta?:ExternalMeta, floorPlanAngle?:integer, floorPlanId?:string, floorPlanX?:number, floorPlanY?:number, frameRate?:number, gpuId?:integer, hwDecode?:boolean, ip?:string, latitude?:number, locationType?:enum(GPS_MAP|INDOOR_MAP|NONE), longitude?:number, manufacturer?:string, model?:string, name?:string, nvrChannel?:string, nvrId?:string, password?:string, plugins?:enum(AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine|+17 more), port?:integer, protocol*:enum(Both|TCP|UDP), resolution?:string, roiContour*:VoContour[], schedule?:Schedule, streamUrl?:string }`
 
 > ⚠️ NOTE: GET /api/cameras/{cameraId} returns this field under a different key — nvrId → nvr.nvrId. This endpoint has been confirmed to leave omitted fields alone, so this is for reading the value, not a warning about losing it. NOTE: "doRecording", "engineConfig" have no known equivalent in GET /api/cameras/{cameraId}, so they cannot be read back — but this endpoint keeps omitted fields, so they survive an update that leaves them out.
 
@@ -513,7 +513,7 @@ _No parameters._
 |---|---|---|---|---|
 | `cameraId` | path | **yes** | integer | cameraId. |
 
-**Body:** `{ account?:string, cameraType*:enum(App|External|Footage|General|Onvif|RecordedAnalytic|VideoSource), description?:string, detectionMode?:string, doRecording*:boolean, engineConfig?:EngineConfig, engineProfileId*:integer, externalMeta?:ExternalMeta, floorPlanAngle?:integer, floorPlanId?:string, floorPlanX?:number, floorPlanY?:number, frameRate?:number, gpuId?:integer, hwDecode?:boolean, ip?:string, latitude?:number, locationType?:enum(GPS_MAP|INDOOR_MAP|NONE), longitude?:number, manufacturer?:string, model?:string, name?:string, nvrChannel?:string, nvrId?:string, password?:string, plugins?:enum(AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine), port?:integer, protocol*:enum(Both|TCP|UDP), resolution?:string, roiContour*:VoContour[], schedule?:Schedule, streamUrl?:string }`
+**Body:** `{ account?:string, cameraType*:enum(App|External|Footage|General|Onvif|RecordedAnalytic|VideoSource), description?:string, detectionMode?:string, doRecording*:boolean, engineConfig?:EngineConfig, engineProfileId*:integer, externalMeta?:ExternalMeta, floorPlanAngle?:integer, floorPlanId?:string, floorPlanX?:number, floorPlanY?:number, frameRate?:number, gpuId?:integer, hwDecode?:boolean, ip?:string, latitude?:number, locationType?:enum(GPS_MAP|INDOOR_MAP|NONE), longitude?:number, manufacturer?:string, model?:string, name?:string, nvrChannel?:string, nvrId?:string, password?:string, plugins?:enum(AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine|+17 more), port?:integer, protocol*:enum(Both|TCP|UDP), resolution?:string, roiContour*:VoContour[], schedule?:Schedule, streamUrl?:string }`
 
 > ⚠️ NOTE: GET /api/cameras/{cameraId} returns this field under a different key — nvrId → nvr.nvrId. This endpoint refuses partial bodies outright, so the full object is required regardless. NOTE: "doRecording", "engineConfig" have no known equivalent in GET /api/cameras/{cameraId}, so they cannot be read back — but this endpoint refuses partial bodies, so an update omitting them fails rather than resetting anything.
 
@@ -555,7 +555,7 @@ _No parameters._
 
 #### `POST /api/cameras/recommend-engines` — Apply recommend engine to camera
 
-**Body:** `array of { ainvrId?:integer, allocatedEngines?:enum[](AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine), cameraId*:integer, cameraName?:string, cameraStatus?:enum(Error|FailedRetry|Idle|Processing|Unknown), recommendEngines*:RecommendEngine[] }`
+**Body:** `array of { ainvrId?:integer, allocatedEngines?:enum[](AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine|+24 more), cameraId*:integer, cameraName?:string, cameraStatus?:enum(Error|FailedRetry|Idle|Processing|Unknown), recommendEngines*:RecommendEngine[] }`
 
 #### `GET /api/cameras/uri-schemes` — List schemes for camera url connection
 
@@ -1838,7 +1838,7 @@ _No parameters._
 | `cameraId` | query | no | integer | cameraId. |
 | `doEstimate` | query | no | boolean | doEstimate. |
 
-**Body:** `{ account?:string, cameraType*:enum(App|External|Footage|General|Onvif|RecordedAnalytic|VideoSource), description?:string, detectionMode?:string, doRecording*:boolean, engineConfig?:EngineConfig, engineProfileId*:integer, externalMeta?:ExternalMeta, floorPlanAngle?:integer, floorPlanId?:string, floorPlanX?:number, floorPlanY?:number, frameRate?:number, gpuId?:integer, hwDecode?:boolean, ip?:string, latitude?:number, locationType?:enum(GPS_MAP|INDOOR_MAP|NONE), longitude?:number, manufacturer?:string, model?:string, name?:string, nvrChannel?:string, nvrId?:string, password?:string, plugins?:enum(AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine), port?:integer, protocol*:enum(Both|TCP|UDP), resolution?:string, roiContour*:VoContour[], schedule?:Schedule, streamUrl?:string }`
+**Body:** `{ account?:string, cameraType*:enum(App|External|Footage|General|Onvif|RecordedAnalytic|VideoSource), description?:string, detectionMode?:string, doRecording*:boolean, engineConfig?:EngineConfig, engineProfileId*:integer, externalMeta?:ExternalMeta, floorPlanAngle?:integer, floorPlanId?:string, floorPlanX?:number, floorPlanY?:number, frameRate?:number, gpuId?:integer, hwDecode?:boolean, ip?:string, latitude?:number, locationType?:enum(GPS_MAP|INDOOR_MAP|NONE), longitude?:number, manufacturer?:string, model?:string, name?:string, nvrChannel?:string, nvrId?:string, password?:string, plugins?:enum(AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine|+17 more), port?:integer, protocol*:enum(Both|TCP|UDP), resolution?:string, roiContour*:VoContour[], schedule?:Schedule, streamUrl?:string }`
 
 ## ivedaai_module
 
@@ -2005,7 +2005,7 @@ _No parameters._
 
 #### `POST /api/onvif/rtsps` — List onvif camera rtsp
 
-**Body:** `{ account?:string, cameraType*:enum(App|External|Footage|General|Onvif|RecordedAnalytic|VideoSource), description?:string, detectionMode?:string, doRecording*:boolean, engineConfig?:EngineConfig, engineProfileId*:integer, externalMeta?:ExternalMeta, floorPlanAngle?:integer, floorPlanId?:string, floorPlanX?:number, floorPlanY?:number, frameRate?:number, gpuId?:integer, hwDecode?:boolean, ip?:string, latitude?:number, locationType?:enum(GPS_MAP|INDOOR_MAP|NONE), longitude?:number, manufacturer?:string, model?:string, name?:string, nvrChannel?:string, nvrId?:string, password?:string, plugins?:enum(AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine), port?:integer, protocol*:enum(Both|TCP|UDP), resolution?:string, roiContour*:VoContour[], schedule?:Schedule, streamUrl?:string }`
+**Body:** `{ account?:string, cameraType*:enum(App|External|Footage|General|Onvif|RecordedAnalytic|VideoSource), description?:string, detectionMode?:string, doRecording*:boolean, engineConfig?:EngineConfig, engineProfileId*:integer, externalMeta?:ExternalMeta, floorPlanAngle?:integer, floorPlanId?:string, floorPlanX?:number, floorPlanY?:number, frameRate?:number, gpuId?:integer, hwDecode?:boolean, ip?:string, latitude?:number, locationType?:enum(GPS_MAP|INDOOR_MAP|NONE), longitude?:number, manufacturer?:string, model?:string, name?:string, nvrChannel?:string, nvrId?:string, password?:string, plugins?:enum(AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine|+17 more), port?:integer, protocol*:enum(Both|TCP|UDP), resolution?:string, roiContour*:VoContour[], schedule?:Schedule, streamUrl?:string }`
 
 ## ivedaai_openid
 
@@ -2093,7 +2093,7 @@ _No parameters._
 
 #### `POST /api/resources/estimation` — Get estimation resource usage for recommend engines
 
-**Body:** `array of { ainvrId?:integer, allocatedEngines?:enum[](AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine), cameraId*:integer, cameraName?:string, cameraStatus?:enum(Error|FailedRetry|Idle|Processing|Unknown), recommendEngines*:RecommendEngine[] }`
+**Body:** `array of { ainvrId?:integer, allocatedEngines?:enum[](AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine|+24 more), cameraId*:integer, cameraName?:string, cameraStatus?:enum(Error|FailedRetry|Idle|Processing|Unknown), recommendEngines*:RecommendEngine[] }`
 
 #### `GET /api/resources/usage` — Get resource information
 
@@ -2120,7 +2120,7 @@ _No parameters._
 
 #### `POST /api/rois` — Create roi
 
-**Body:** `{ cameraId*:integer, condition*:RoiTypeReq[], conditionLogic?:enum(and|or), excludeRoiContour?:Contour[], isEnabled?:boolean, name*:string, parameter*:RoiParameter, roiContour*:Contour[], schedule?:Schedule, type?:enum(CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|ILLEGAL_PARKING|INTRUSION|LOITERING|LPR) }`
+**Body:** `{ cameraId*:integer, condition*:RoiTypeReq[], conditionLogic?:enum(and|or), excludeRoiContour?:Contour[], isEnabled?:boolean, name*:string, parameter*:RoiParameter, roiContour*:Contour[], schedule?:Schedule, type?:enum(CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|ILLEGAL_PARKING|INTRUSION|LOITERING|LPR|+2 more) }`
 
 #### `DELETE /api/rois/{roiId}` — Delete roi by id
 
@@ -2140,7 +2140,7 @@ _No parameters._
 |---|---|---|---|---|
 | `roiId` | path | **yes** | integer | roiId. |
 
-**Body:** `{ cameraId*:integer, condition*:RoiTypeReq[], conditionLogic?:enum(and|or), excludeRoiContour?:Contour[], isEnabled?:boolean, name*:string, parameter*:RoiParameter, roiContour*:Contour[], schedule?:Schedule, type?:enum(CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|ILLEGAL_PARKING|INTRUSION|LOITERING|LPR) }`
+**Body:** `{ cameraId*:integer, condition*:RoiTypeReq[], conditionLogic?:enum(and|or), excludeRoiContour?:Contour[], isEnabled?:boolean, name*:string, parameter*:RoiParameter, roiContour*:Contour[], schedule?:Schedule, type?:enum(CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|ILLEGAL_PARKING|INTRUSION|LOITERING|LPR|+2 more) }`
 
 > ⚠️ NOTE: GET /api/rois/{roiId} returns these fields under a different key — cameraId → camera.cameraId, condition → types, conditionLogic → logical, excludeRoiContour → excludedRegion, isEnabled → enabled, name → eventName, parameter → parameters, roiContour → region[].contour, type → eventType. This endpoint has been confirmed to leave omitted fields alone, so this is for reading the value, not a warning about losing it.
 
@@ -2150,7 +2150,7 @@ _No parameters._
 |---|---|---|---|---|
 | `roiId` | path | **yes** | integer | roiId. |
 
-**Body:** `{ cameraId*:integer, condition*:RoiTypeReq[], conditionLogic?:enum(and|or), excludeRoiContour?:Contour[], isEnabled?:boolean, name*:string, parameter*:RoiParameter, roiContour*:Contour[], schedule?:Schedule, type?:enum(CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|ILLEGAL_PARKING|INTRUSION|LOITERING|LPR) }`
+**Body:** `{ cameraId*:integer, condition*:RoiTypeReq[], conditionLogic?:enum(and|or), excludeRoiContour?:Contour[], isEnabled?:boolean, name*:string, parameter*:RoiParameter, roiContour*:Contour[], schedule?:Schedule, type?:enum(CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|ILLEGAL_PARKING|INTRUSION|LOITERING|LPR|+2 more) }`
 
 > ⚠️ NOTE: GET /api/rois/{roiId} returns these fields under a different key — cameraId → camera.cameraId, condition → types, conditionLogic → logical, excludeRoiContour → excludedRegion, isEnabled → enabled, name → eventName, parameter → parameters, roiContour → region[].contour, type → eventType. This endpoint has been confirmed to leave omitted fields alone, so this is for reading the value, not a warning about losing it.
 
@@ -2372,7 +2372,7 @@ _No parameters._
 
 #### `POST /api/user-groups` — Create user group
 
-**Body:** `{ accountIds?:integer[], externalId*:string, name*:string, privileges?:enum[](AGE_GENDER_READ|AGE_GENDER_WRITE|ALERT_READ|ALERT_WRITE|CAMERA_GROUP_READ|CAMERA_GROUP_WRITE|CAMERA_READ|CAMERA_WRITE) }`
+**Body:** `{ accountIds?:integer[], externalId*:string, name*:string, privileges?:enum[](AGE_GENDER_READ|AGE_GENDER_WRITE|ALERT_READ|ALERT_WRITE|CAMERA_GROUP_READ|CAMERA_GROUP_WRITE|CAMERA_READ|CAMERA_WRITE|+49 more) }`
 
 #### `DELETE /api/user-groups/{userGroupId}` — Delete user group
 
@@ -2386,7 +2386,7 @@ _No parameters._
 |---|---|---|---|---|
 | `userGroupId` | path | **yes** | string | userGroupId. |
 
-**Body:** `{ accountIds?:integer[], externalId*:string, name*:string, privileges?:enum[](AGE_GENDER_READ|AGE_GENDER_WRITE|ALERT_READ|ALERT_WRITE|CAMERA_GROUP_READ|CAMERA_GROUP_WRITE|CAMERA_READ|CAMERA_WRITE) }`
+**Body:** `{ accountIds?:integer[], externalId*:string, name*:string, privileges?:enum[](AGE_GENDER_READ|AGE_GENDER_WRITE|ALERT_READ|ALERT_WRITE|CAMERA_GROUP_READ|CAMERA_GROUP_WRITE|CAMERA_READ|CAMERA_WRITE|+49 more) }`
 
 > ⚠️ CAUTION: this endpoint nulls "externalId" if the body omits it, and still returns 200. Send the full object, including the current value of that field. Omitting it is refused by this tool; pass it as null to clear it deliberately.
 
@@ -2398,7 +2398,7 @@ _No parameters._
 |---|---|---|---|---|
 | `userGroupId` | path | **yes** | string | userGroupId. |
 
-**Body:** `{ accountIds?:integer[], externalId*:string, name*:string, privileges?:enum[](AGE_GENDER_READ|AGE_GENDER_WRITE|ALERT_READ|ALERT_WRITE|CAMERA_GROUP_READ|CAMERA_GROUP_WRITE|CAMERA_READ|CAMERA_WRITE) }`
+**Body:** `{ accountIds?:integer[], externalId*:string, name*:string, privileges?:enum[](AGE_GENDER_READ|AGE_GENDER_WRITE|ALERT_READ|ALERT_WRITE|CAMERA_GROUP_READ|CAMERA_GROUP_WRITE|CAMERA_READ|CAMERA_WRITE|+49 more) }`
 
 > ⚠️ NOTE: "accountIds" is not on the record at all, but a second endpoint returns it — read accountIds from GET /api/user-groups/{userGroupId}/accounts at content[].accountId. Read it there if you need the current value.
 
