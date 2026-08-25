@@ -9,6 +9,40 @@ const MAX_PROPS = 40;
 const MAX_ENUM = 8;
 
 /**
+ * Renders an enum's values, and says so when it has cut some.
+ *
+ * The marker is not decoration. Without it a 24-value enum renders exactly like
+ * a genuine 8-value one, and nothing in the description tells a caller which it
+ * is looking at — so the honest reading of a truncated list is that it is the
+ * whole list.
+ *
+ * Found by running the evaluation suite rather than by reading the code. Asked
+ * how many alert categories can be reported but not requested, the model was
+ * shown `alertTypes` (24 values) and `eventTypes` (12) both rendered as the
+ * same 8, and reported that the two sets "are documented identically ... which
+ * offers no basis for a nonzero answer". The real answer is 12. It got there
+ * only by distrusting the description and calling ivedaai_get_schema.
+ *
+ * That is the failure this codebase treats as the expensive one: not a missing
+ * fact, but a confidently wrong one.
+ *
+ * 39 of the 220 enums in the 10.0 document are long enough to be cut, up to
+ * `privileges` at 57 values, but only 14 of those are rendered inline and reach
+ * a caller unmarked — the rest sit inside body schemas, which are already traded
+ * away to `ivedaai_get_schema` and so are never truncated in the first place.
+ * That is why the marker costs so little: it is paid 14 times, not 39.
+ *
+ * `describeObjectProps` has always marked its own cut with
+ * `...(+N more, use ivedaai_get_schema)`. Enums were the inconsistency, not the
+ * marker.
+ */
+function renderEnum(values: ReadonlyArray<unknown>): string {
+  const shown = values.slice(0, MAX_ENUM).map(String).join("|");
+  const hidden = values.length - MAX_ENUM;
+  return hidden > 0 ? `${shown}|+${hidden} more` : shown;
+}
+
+/**
  * springdoc's placeholder for a schema it could not name.
  *
  * The 10.0 document ships two of these, both `java.time.LocalDate`:
@@ -48,10 +82,10 @@ function describePropType(spec: JsonObject, propSchema: SchemaNode | undefined):
   if (propSchema.type === "array") {
     const items = propSchema.items;
     if (items?.$ref) return `${refName(items.$ref)}[]`;
-    if (items?.enum) return `enum[](${items.enum.slice(0, MAX_ENUM).map(String).join("|")})`;
+    if (items?.enum) return `enum[](${renderEnum(items.enum)})`;
     return `${items?.type ?? "any"}[]`;
   }
-  if (propSchema.enum) return `enum(${propSchema.enum.slice(0, MAX_ENUM).map(String).join("|")})`;
+  if (propSchema.enum) return `enum(${renderEnum(propSchema.enum)})`;
   return propSchema.type ?? "any";
 }
 
@@ -150,7 +184,7 @@ function formatNonBodyParam(p: ParamDef): string {
     typeStr = `${itemType}[]`;
   }
   const enumVals = p.enum;
-  const extra = enumVals && enumVals.length > 0 ? ` enum:${enumVals.slice(0, MAX_ENUM).join("|")}` : "";
+  const extra = enumVals && enumVals.length > 0 ? ` enum:${renderEnum(enumVals)}` : "";
   // Rendered in place of the type rather than beside it: `start*:string` told a
   // caller nothing they did not already assume, and the pattern is the only part
   // of this parameter that is hard to guess and easy to get wrong.
