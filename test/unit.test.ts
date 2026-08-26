@@ -42,6 +42,7 @@ import {
   classifySubresource,
 } from "../src/roundTrip.js";
 import { redactSecrets } from "../src/redact.js";
+import { stripInlineMediaFromCollections } from "../src/inlineMedia.js";
 import { buildCameraBody, defaultRoiContour } from "../src/cameraOnboarding.js";
 import {
   findLossyOmissions,
@@ -1263,6 +1264,73 @@ describe("classifySubresource", () => {
   });
 });
 
+describe("stripInlineMediaFromCollections", () => {
+  // Measured: GET /api/alerts returned 227,600 records for one week, and
+  // every face-recognition alert embeds the matched person's enrolled
+  // portrait as a ~2.7 KB data URI. Against the 28 KB response cap that is
+  // five to eight alerts per call, spent on pixels in a text channel.
+  const portrait = "data:image/jpeg;base64," + "A".repeat(2600);
+
+  it("replaces the payload with a marker naming the type and size", () => {
+    const page = { content: [{ faceTarget: "Rebecca", faceTargetFile: portrait }] };
+    const out = stripInlineMediaFromCollections(page) as any;
+    const value = out.content[0].faceTargetFile as string;
+    expect(value).not.toContain("AAAA");
+    expect(value).toContain("image/jpeg");
+    expect(value).toContain("KB");
+    // The marker must be a fraction of what it replaces, or it is pointless.
+    expect(value.length).toBeLessThan(portrait.length / 10);
+    // Everything else in the record is untouched.
+    expect(out.content[0].faceTarget).toBe("Rebecca");
+  });
+
+  it("leaves a single-record read whole, which is how the value is retrieved", () => {
+    // No environment switch exists because this is the escape hatch: narrow
+    // to one alert and the portrait comes back intact.
+    const single = { alertId: 435598, faceTargetFile: portrait };
+    const out = stripInlineMediaFromCollections(single) as any;
+    expect(out.faceTargetFile).toBe(portrait);
+  });
+
+  it("handles a bare array as a collection too", () => {
+    const out = stripInlineMediaFromCollections([{ f: portrait }]) as any[];
+    expect(out[0].f).toContain("omitted");
+  });
+
+  it("keeps image URLs, which are how a caller finds the picture", () => {
+    // Only the inline copy goes. snapshot/alertImage/faceFile are ordinary
+    // strings and must survive, or the caller loses the pointer as well.
+    const page = {
+      content: [
+        {
+          snapshot: "http://host/ainvr/samba/image/2026/8/26/15.59.57.912.jpg",
+          metadata: { alertImage: "http://host/ainvr/samba/image/839b4fbe.jpg", faceTargetFile: portrait },
+        },
+      ],
+    };
+    const out = stripInlineMediaFromCollections(page) as any;
+    expect(out.content[0].snapshot).toBe("http://host/ainvr/samba/image/2026/8/26/15.59.57.912.jpg");
+    expect(out.content[0].metadata.alertImage).toBe("http://host/ainvr/samba/image/839b4fbe.jpg");
+    expect(out.content[0].metadata.faceTargetFile).toContain("omitted");
+  });
+
+  it("leaves small inline data alone", () => {
+    // Below the threshold the marker costs more than the payload.
+    const tiny = "data:image/gif;base64," + "A".repeat(50);
+    const out = stripInlineMediaFromCollections({ content: [{ icon: tiny }] }) as any;
+    expect(out.content[0].icon).toBe(tiny);
+  });
+
+  it("does not touch long strings that are not data URIs", () => {
+    // Over-reach here would silently destroy real data — a description, a
+    // base64 field that is not media, an encoded condition blob.
+    const long = "x".repeat(5000);
+    const condition = JSON.stringify({ cameras: [144, 146, 150], typeLogic: "and" }) + "y".repeat(2000);
+    const out = stripInlineMediaFromCollections({ content: [{ long, condition }] }) as any;
+    expect(out.content[0].long).toBe(long);
+    expect(out.content[0].condition).toBe(condition);
+  });
+});
 describe("redactSecrets", () => {
   // Found live: GET /api/cameras returned a camera whose credential-shaped
   // fields were empty while the same credentials sat in plaintext one field

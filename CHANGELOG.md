@@ -6,7 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- Collection reads replace an inline media payload with a marker naming its type and size, rather
+  than carrying it. A face-recognition alert embeds the matched person's enrolled portrait as a
+  ~2.7 KB data URI, repeated on every alert matching that person; a page of ten measured 63.3 KB
+  before and 54.3 KB after. A single-record read keeps the payload whole, which is how the full
+  value is retrieved. Image endpoints and the image URLs inside a record are unaffected.
 
 ## [1.0.0] — 2026-08-25
 
