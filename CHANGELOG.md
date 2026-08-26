@@ -54,7 +54,6 @@ installable rather than only buildable from a clone.
 - `POST /api/cameras` states the four further fields the API requires beyond the one the published
   spec marks. A body carrying only `cameraType` is refused with a 400 naming them, and no record is
   created.
-
 - Tool schemas no longer declare a JSON Schema dialect. The SDK stamped draft-07 onto all 132
   published schemas, which made every tool uncallable from a client whose validator implements
   2020-12 only — the refusal happens before the request is built, so the tool cannot be invoked at
