@@ -34,7 +34,7 @@ installable rather than only buildable from a clone.
 - The README leads with installation. Architecture and API behaviour moved to
   [docs/DESIGN.md](docs/DESIGN.md); test documentation moved to
   [CONTRIBUTING.md](CONTRIBUTING.md).
-- The published package contains 21 files rather than the 65 that a
+- The published package contains 22 files rather than the 65 that a
   default `npm pack` would have shipped.
 - `IVEDAAI_MAX_RESPONSE_BYTES` now defaults to 28 KB rather than 2 MB. The old value was chosen to
   avoid truncating what the API might send; the binding constraint is what a model client can
@@ -54,6 +54,12 @@ installable rather than only buildable from a clone.
 - `POST /api/cameras` states the four further fields the API requires beyond the one the published
   spec marks. A body carrying only `cameraType` is refused with a 400 naming them, and no record is
   created.
+
+- Tool schemas no longer declare a JSON Schema dialect. The SDK stamped draft-07 onto all 132
+  published schemas, which made every tool uncallable from a client whose validator implements
+  2020-12 only — the refusal happens before the request is built, so the tool cannot be invoked at
+  all. The schemas themselves are unchanged and dialect-neutral; only the declaration is gone. It
+  also takes 6,864 characters off what a client loads on connect.
 
 ### Security
 
