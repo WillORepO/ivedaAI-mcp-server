@@ -1264,6 +1264,54 @@ describe("classifySubresource", () => {
 });
 
 describe("redactSecrets", () => {
+  // Found live: GET /api/cameras returned a camera whose credential-shaped
+  // fields were empty while the same credentials sat in plaintext one field
+  // over, inside the stream URL. Key-name matching cannot see that, and the
+  // whole point of this module is that credentials do not reach model context.
+  it("redacts a password carried in a URL, and keeps the rest of the URL", () => {
+    const out = redactSecrets({
+      account: null,
+      password: null,
+      streamUrl: "rtsp://Operator:hunter2@10.0.0.5:60000/Streaming/Channels/2001",
+    }) as Record<string, unknown>;
+    expect(out.streamUrl).toBe("rtsp://Operator:***REDACTED***@10.0.0.5:60000/Streaming/Channels/2001");
+    // The username stays, per this file's stated policy, and so does every
+    // part that identifies which stream this is.
+    expect(out.streamUrl).toContain("Operator");
+    expect(out.streamUrl).toContain("10.0.0.5:60000");
+    expect(out.streamUrl).not.toContain("hunter2");
+  });
+
+  it("finds them in arrays and in bare strings, not just object values", () => {
+    const inArray = redactSecrets(["rtsp://u:p@h/s"]) as string[];
+    expect(inArray[0]).toBe("rtsp://u:***REDACTED***@h/s");
+    expect(redactSecrets("https://u:p@example.com")).toBe("https://u:***REDACTED***@example.com");
+  });
+
+  it("reaches a URL inside a JSON-encoded string field", () => {
+    // AlertRule.trigger arrives as encoded JSON — the same wrinkle the key
+    // matching already has to handle.
+    const out = redactSecrets({ trigger: JSON.stringify({ url: "rtsp://u:p@h/s" }) }) as Record<string, string>;
+    expect(out.trigger).toContain("***REDACTED***");
+    expect(out.trigger).not.toContain(":p@");
+  });
+
+  it("leaves alone anything that is not a credential", () => {
+    // Over-redaction breaks legitimate reads, which is why the key list is
+    // exact-match. The shape rule has to hold the same line.
+    const untouched = [
+      "rtsp://10.0.0.5:60000/Streaming/Channels/2001", // no userinfo
+      "rtsp://Operator@10.0.0.5/s", // username only, no password
+      "rtsp://Operator:@10.0.0.5/s", // empty password is not a secret
+      "support@example.com", // no scheme
+      "user:role@domain", // no scheme
+      "Camera 3 @ 10:30, owner:ops@site", // prose
+    ];
+    for (const value of untouched) {
+      expect(redactSecrets(value), value).toBe(value);
+    }
+  });
+
   it("redacts every credential field this API actually uses", () => {
     // Audited against the spec rather than guessed. `ApiKey.key` is the one
     // that mattered: GET /api/accounts/api-keys returns the key itself, so
