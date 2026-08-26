@@ -5,6 +5,7 @@ import type { TokenManager } from "./auth.js";
 import { connectionFailureMessage } from "./netError.js";
 import { readUploadFile, type UploadPolicy } from "./uploadPath.js";
 import { redactSecrets } from "./redact.js";
+import { stripInlineMediaFromCollections } from "./inlineMedia.js";
 
 export interface FileInput {
   path: string;
@@ -641,6 +642,9 @@ export async function executeOperation(
     if (tokenManager.redactSecrets) {
       parsedBody = redactSecrets(parsedBody);
     }
+    // After redaction, so a marker never replaces something that should have
+    // been masked first, and only on collections — see src/inlineMedia.ts.
+    parsedBody = stripInlineMediaFromCollections(parsedBody);
   }
 
   const responseHeaders: Record<string, string> = {};
