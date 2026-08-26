@@ -9,10 +9,17 @@
  * can appear on any endpoint whose schema embeds downstream credentials
  * (alert rule triggers, camera RTSP account/password, etc.), not just one.
  *
- * Only known secret-value field *names* are redacted (exact match,
+ * Two rules, and only two.
+ *
+ * Known secret-value field *names* are redacted (exact match,
  * case-insensitive) — not substrings — so "tokenType" or "passwordPolicy"
  * are left alone. Usernames/accounts are not redacted, only the paired
  * secret value.
+ *
+ * A password carried in a URL's userinfo is redacted by *shape*, because no
+ * key name can describe it: the credential is inside the value of a field
+ * that is not itself a credential field. See URL_USERINFO and the live camera
+ * read that found it.
  *
  * One non-obvious wrinkle, also found live: AlertRule's "trigger" field
  * comes back as a JSON-encoded *string*, not a nested object — e.g.
@@ -81,6 +88,50 @@ function tryRedactEmbeddedJson(text: string): string | undefined {
   }
 }
 
+/**
+ * A password carried in a URL's userinfo, as `scheme://user:password@host`.
+ *
+ * Key-name matching cannot see this one, and a live read is what showed it.
+ * `GET /api/cameras` returned a camera whose credential-shaped fields were
+ * dutifully empty while the same credentials sat in plaintext one field over:
+ *
+ *     "account": null, "password": null,
+ *     "streamUrl": "rtsp://user:hunter2@10.0.0.5:60000/Streaming/Channels/2001"
+ *
+ * Nothing was wrong with the key list — `streamUrl` is not a credential field
+ * and should not be treated as one. The gap is that userinfo is a credential
+ * wherever it appears, so this matches the *shape* rather than the field, and
+ * is the only rule here that does.
+ *
+ * The username is kept, matching the policy stated at the top of this file:
+ * usernames and accounts are not redacted, only the paired secret. It also
+ * leaves the URL identifiable, which is usually the reason someone is reading
+ * the field at all.
+ *
+ * The scheme is required, so an ordinary string containing an `@` — an email
+ * address, a Java array dump, a `user:role@domain` label — is not touched.
+ */
+const URL_USERINFO = /([a-z][a-z0-9+.-]*:\/\/)([^\s/?#@:]+):([^\s/?#@]*)@/gi;
+
+function redactUrlCredentials(text: string): string {
+  return text.replace(URL_USERINFO, (whole, scheme: string, user: string, password: string) =>
+    // An empty password is not a secret, and replacing it would invent one.
+    password.length > 0 ? `${scheme}${user}:${REDACTED}@` : whole
+  );
+}
+
+/**
+ * Every string value gets both treatments, wherever it sits.
+ *
+ * Previously only strings found as object *values* were examined, so a URL
+ * inside an array — or a bare string body — went through untouched.
+ */
+function redactString(text: string): string {
+  const embedded = tryRedactEmbeddedJson(text);
+  if (embedded !== undefined) return embedded;
+  return redactUrlCredentials(text);
+}
+
 /** Recursively redacts sensitive-keyed string values in an already-parsed JSON value. */
 export function redactSecrets(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -92,12 +143,15 @@ export function redactSecrets(value: unknown): unknown {
       if (isSensitiveKey(key) && typeof val === "string" && val.length > 0) {
         result[key] = REDACTED;
       } else if (typeof val === "string") {
-        result[key] = tryRedactEmbeddedJson(val) ?? val;
+        result[key] = redactString(val);
       } else {
         result[key] = redactSecrets(val);
       }
     }
     return result;
+  }
+  if (typeof value === "string") {
+    return redactString(value);
   }
   return value;
 }

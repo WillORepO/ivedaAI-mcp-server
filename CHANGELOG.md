@@ -67,6 +67,10 @@ installable rather than only buildable from a clone.
   directory. The explicit `IVEDAAI_ALLOW_UNCONFINED_UPLOADS=true` compatibility escape hatch still
   refuses credential paths, Linux virtual kernel filesystems, non-regular files, and oversized
   files. Approved files are read through a stable descriptor with a hard byte cap.
+- A password carried inside a URL is redacted, as `rtsp://user:***REDACTED***@host`. Credential
+  redaction matched field names only, so a camera whose `account` and `password` fields were empty
+  still sent its stream credentials into model context through `streamUrl`. Strings are now
+  examined wherever they appear, including inside arrays and JSON-encoded fields.
 - Collection-emptying DELETEs are withheld unless `IVEDAAI_ALLOW_COLLECTION_DELETE=true`.
 - `IVEDAAI_READ_ONLY=true` withholds every non-GET from the tool list rather than refusing at call
   time.
