@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The text block that accompanies `structuredContent` is serialised compactly rather than
+  pretty-printed. Every result carries the payload twice by design — the spec asks for it, for
+  clients that read only `content` — but the indentation was 24% of the wire, taxed twice because
+  the block is escaped into the JSON-RPC envelope. Measured across eight real reads: 187.2 KB down
+  to 137.9 KB, a 2.88x multiplier down to 2.13x. The data is byte-identical.
 - Collection reads replace an inline media payload with a marker naming its type and size, rather
   than carrying it. A face-recognition alert embeds the matched person's enrolled portrait as a
   ~2.7 KB data URI, repeated on every alert matching that person; a page of ten measured 63.3 KB

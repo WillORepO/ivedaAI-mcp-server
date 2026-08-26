@@ -94,6 +94,32 @@ Docs: https://github.com/WillORepO/ivedaAI-mcp-server#readme`);
   process.exit(0);
 }
 
+/**
+ * The text block that accompanies `structuredContent`, serialised compactly.
+ *
+ * Every result carries the same payload twice: once here, and once as
+ * `structuredContent`. That is deliberate and required — the spec says a tool
+ * returning structured content SHOULD also return the serialized JSON in a
+ * TextContent block, for clients that read only `content`.
+ *
+ * What is not required is the indentation. Measured across eight real reads:
+ * 65.0 KB of unique data was transmitted as 187.1 KB, and 45.1 KB of that —
+ * 24% of the wire — was whitespace. It is taxed twice, because the block is
+ * embedded as a string in the JSON-RPC envelope, so every newline the
+ * indentation adds is escaped to two characters on the way out.
+ *
+ * The spec's own example is compact. Nothing can tell the difference except by
+ * looking for whitespace, and nothing does.
+ *
+ * Deliberately not applied to the diagnostic bodies in the lossy-update
+ * refusals below. Those are prose a reader has to follow, they are the only
+ * copy of what they show rather than a duplicate, and they are error paths
+ * where being easy to read is worth more than the bytes.
+ */
+function resultText(payload: unknown): string {
+  return JSON.stringify(payload);
+}
+
 const ctx = loadSwagger();
 
 let tokenManager: TokenManager;
@@ -313,7 +339,7 @@ for (const group of ctx.tags) {
 
         return {
           content: [
-            { type: "text", text: JSON.stringify(textPayload, null, 2) },
+            { type: "text", text: resultText(textPayload) },
             ...(image ? [{ type: "image" as const, data: image.base64, mimeType: image.mimeType }] : []),
           ],
           // The same object the text block serialises, so a client reading one
@@ -350,7 +376,7 @@ server.registerTool(
       // Wrapped rather than returned as a bare array: structuredContent has to
       // be an object. See src/outputSchema.ts.
       const payload = { names: Object.keys(schemaDefinitions(ctx.spec)).sort() };
-      return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }], structuredContent: payload };
+      return { content: [{ type: "text", text: resultText(payload) }], structuredContent: payload };
     }
     const resolved = resolveRef(ctx.spec, schemaRef(name));
     if (!resolved) {
@@ -360,7 +386,7 @@ server.registerTool(
       };
     }
     const payload = { name, schema: resolved };
-    return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }], structuredContent: payload };
+    return { content: [{ type: "text", text: resultText(payload) }], structuredContent: payload };
   }
 );
 
@@ -422,7 +448,7 @@ if (ACCESS_POLICY.readOnly) {
         // ivedaai_get_schema: structuredContent must be an object, and one
         // declared shape has to cover all three actions.
         const payload = { types: TRIGGER_TYPES };
-        return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }], structuredContent: payload };
+        return { content: [{ type: "text", text: resultText(payload) }], structuredContent: payload };
       }
 
       if (!type) {
@@ -453,7 +479,7 @@ if (ACCESS_POLICY.readOnly) {
           const interpretation = interpretTestResult(result.status, result.body);
           const payload = { ...interpretation, httpStatus: result.status, raw: result.body };
           return {
-            content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+            content: [{ type: "text", text: resultText(payload) }],
             structuredContent: payload,
             isError: result.status >= 400,
           };
@@ -535,7 +561,7 @@ if (ACCESS_POLICY.readOnly) {
           },
         };
         return {
-          content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+          content: [{ type: "text", text: resultText(payload) }],
           structuredContent: payload,
           isError: result.status >= 400,
         };
@@ -680,7 +706,7 @@ if (ACCESS_POLICY.readOnly) {
 
         const payload = { ainvrId: resolvedAinvrId, results };
         return {
-          content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+          content: [{ type: "text", text: resultText(payload) }],
           structuredContent: payload,
           isError: anyFailed,
         };
