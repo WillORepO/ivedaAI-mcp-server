@@ -51,11 +51,18 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 // number, and a value derived to the byte from one endpoint on one client would
 // be false precision.
 //
-// The cap counts raw response bytes, but the client is handed the result
-// pretty-printed (`JSON.stringify(payload, null, 2)`), which is 15-20% larger.
-// So the budget has to account for that amplification: 28 KB raw lands around
-// 34 KB rendered, inside the proven range, where 32 KB raw would land at ~38 KB
-// — exactly the largest size confirmed to pass, with no margin at all.
+// This number was originally derived with an amplification factor built in: the
+// result used to be handed over pretty-printed, 15-20% larger than the raw
+// bytes counted here, so 28 KB raw landed around 34 KB rendered and 32 KB raw
+// would have landed at ~38 KB — the largest size confirmed to pass, with no
+// margin at all.
+//
+// The text block is serialised compactly now (see `resultText` in index.ts), so
+// that amplification is gone and 28 KB raw lands at roughly 28 KB rendered.
+// The cap is left where it is rather than raised to spend the headroom:
+// the figures above were bisected against one real client, and changing the
+// serialisation and the budget in the same breath would leave neither
+// measured. Raising it is a separate decision, with its own evidence.
 //
 // Raise it with IVEDAAI_MAX_RESPONSE_BYTES where a specific call needs more and
 // the client can take it.
