@@ -20,6 +20,7 @@
  */
 import { z } from "zod";
 import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
+import { stripSchemaDialect } from "../src/schemaDialect.js";
 import { loadSwagger, tagToToolName } from "../src/swagger.js";
 import {
   describeTag,
@@ -97,9 +98,21 @@ for (const group of ctx.tags) {
  * preferable to this quietly reporting a number that is no longer what a client
  * receives.
  */
-const outputSchemaChars = JSON.stringify(
-  toJsonSchemaCompat(z.object(apiResponseOutput), { strictUnions: true, pipeStrategy: "output" })
-).length;
+
+/**
+ * The schema as this server actually publishes it.
+ *
+ * The SDK's converter stamps a dialect declaration that the transport strips
+ * before the response leaves — see src/schemaDialect.ts. Counting it here would
+ * charge the budget 6,864 characters that no client ever receives.
+ */
+function publishedSchema(shape: Parameters<typeof z.object>[0]): string {
+  const schema = toJsonSchemaCompat(z.object(shape), { strictUnions: true, pipeStrategy: "output" });
+  stripSchemaDialect(schema);
+  return JSON.stringify(schema);
+}
+
+const outputSchemaChars = publishedSchema(apiResponseOutput).length;
 const outputSchemaTotal = outputSchemaChars * perTool.length;
 
 /**
@@ -123,9 +136,7 @@ const handWritten = [
 ].map((t) => ({
   ...t,
   chars: t.description.length,
-  schemaChars: JSON.stringify(
-    toJsonSchemaCompat(z.object(t.output), { strictUnions: true, pipeStrategy: "output" })
-  ).length,
+  schemaChars: publishedSchema(t.output).length,
 }));
 
 const handWrittenChars = handWritten.reduce((n, t) => n + t.chars, 0);

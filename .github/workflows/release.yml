@@ -63,7 +63,7 @@ jobs:
           const paths = pack.files.map((file) => file.path).sort();
           const required = ["dist/index.js", "resources/openapi.json", "package.json", "README.md", "LICENSE", "SECURITY.md"];
           const forbidden = paths.filter((path) => /^(evaluations|scripts|src|test)\//.test(path));
-          if (pack.entryCount !== 21) throw new Error(`expected 21 package entries, found ${pack.entryCount}`);
+          if (pack.entryCount !== 22) throw new Error(`expected 22 package entries, found ${pack.entryCount}`);
           for (const path of required) if (!paths.includes(path)) throw new Error(`${path} missing from tarball`);
           if (forbidden.length) throw new Error(`development-only files in tarball: ${forbidden.join(", ")}`);
           fs.writeFileSync("/tmp/tarball-name", pack.filename);

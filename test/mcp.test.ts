@@ -361,6 +361,37 @@ describe("MCP server over stdio", () => {
     }
   }, 60_000);
 
+  it("publishes no JSON Schema dialect on any tool schema", async () => {
+    // The SDK stamps draft-07 onto every schema it generates, and a client
+    // whose validator implements 2020-12 only then refuses to invoke the tool
+    // at all — not a failed call, an uninvokable tool. This was live: every
+    // one of the 66 tools was rejected by a real client before any request
+    // was built. Asserted over the wire rather than against the strip
+    // function, because what matters is what a client receives.
+    await withClient({}, async (c) => {
+      await c.start();
+      const tools = (await c.call("tools/list")).result.tools;
+      expect(tools.length).toBeGreaterThan(0);
+
+      const offenders: string[] = [];
+      for (const tool of tools as Array<Record<string, any>>) {
+        for (const which of ["inputSchema", "outputSchema"]) {
+          const schema = tool[which];
+          if (schema && typeof schema === "object" && "$schema" in schema) {
+            offenders.push(`${tool.name}.${which} declares ${schema.$schema}`);
+          }
+        }
+      }
+      expect(offenders).toEqual([]);
+
+      // The strip must not have taken the schema with it: these are a
+      // contract the SDK validates every non-error result against.
+      const generated = (tools as Array<Record<string, any>>).find((t) => t.name === "ivedaai_camera");
+      expect(generated?.outputSchema?.type).toBe("object");
+      expect(generated?.outputSchema?.required).toContain("status");
+      expect(generated?.inputSchema?.properties?.operation).toBeTruthy();
+    });
+  }, 60_000);
   it("withholds collection-emptying deletes by default, and keeps the single-record one", async () => {
     await withClient({}, async (c) => {
       await c.start();

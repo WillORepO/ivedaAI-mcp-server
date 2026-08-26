@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import { stripDialectsFromToolList } from "./schemaDialect.js";
 import { z } from "zod";
 import { loadSwagger, tagToToolName, resolveRef, schemaDefinitions, schemaRef, type Operation } from "./swagger.js";
 import { loadConfig, TokenManager, insecureTransportWarning } from "./auth.js";
@@ -693,6 +695,11 @@ if (ACCESS_POLICY.readOnly) {
 }
 
 const transport = new StdioServerTransport();
+const sendUnmodified = transport.send.bind(transport);
+transport.send = async (message: JSONRPCMessage): Promise<void> => {
+  stripDialectsFromToolList(message);
+  return sendUnmodified(message);
+};
 await server.connect(transport);
 console.error(
   `[ivedaai-mcp-server] running, ${seenNames.size} resource tools + ivedaai_get_schema + ivedaai_alert_integration + ivedaai_add_camera registered`
