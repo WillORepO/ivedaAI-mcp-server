@@ -6,20 +6,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Changed
+Nothing yet.
 
-- The text block that accompanies `structuredContent` is serialised compactly rather than
-  pretty-printed. Every result carries the payload twice by design — the spec asks for it, for
-  clients that read only `content` — but the indentation was 24% of the wire, taxed twice because
-  the block is escaped into the JSON-RPC envelope. Measured across eight real reads: 187.2 KB down
-  to 137.9 KB, a 2.88x multiplier down to 2.13x. The data is byte-identical.
-- Collection reads replace an inline media payload with a marker naming its type and size, rather
-  than carrying it. A face-recognition alert embeds the matched person's enrolled portrait as a
-  ~2.7 KB data URI, repeated on every alert matching that person; a page of ten measured 63.3 KB
-  before and 54.3 KB after. A single-record read keeps the payload whole, which is how the full
-  value is retrieved. Image endpoints and the image URLs inside a record are unaffected.
-
-## [1.0.0] — 2026-08-25
+## [1.0.0] — 2026-08-27
 
 First packaged release. The server itself predates this entry; what changed is that it is now
 installable rather than only buildable from a clone.
@@ -70,6 +59,16 @@ installable rather than only buildable from a clone.
   2020-12 only — the refusal happens before the request is built, so the tool cannot be invoked at
   all. The schemas themselves are unchanged and dialect-neutral; only the declaration is gone. It
   also takes 6,864 characters off what a client loads on connect.
+- The text block that accompanies `structuredContent` is serialised compactly rather than
+  pretty-printed. Every result carries the payload twice by design — the spec asks for it, for
+  clients that read only `content` — but the indentation was 24% of the wire, taxed twice because
+  the block is escaped into the JSON-RPC envelope. Measured across eight real reads: 187.2 KB down
+  to 137.9 KB, a 2.88x multiplier down to 2.13x. The data is byte-identical.
+- Collection reads replace an inline media payload with a marker naming its type and size, rather
+  than carrying it. A face-recognition alert embeds the matched person's enrolled portrait as a
+  ~2.7 KB data URI, repeated on every alert matching that person; a page of ten measured 63.3 KB
+  before and 54.3 KB after. A single-record read keeps the payload whole, which is how the full
+  value is retrieved. Image endpoints and the image URLs inside a record are unaffected.
 
 ### Security
 
