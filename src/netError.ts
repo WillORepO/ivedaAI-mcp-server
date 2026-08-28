@@ -114,3 +114,44 @@ function safeOrigin(url: string): string {
     return url;
   }
 }
+
+/**
+ * A 403 that is the deployment's licence rather than the caller's credentials.
+ *
+ * Observed live over several days: every operation answered 403
+ * `AccessDeniedException` with errorCode 1312 and "License is invalid", while
+ * `GET /api/licenses` kept working. Licence state is per-deployment, so this is
+ * not a quirk of one server — any deployment whose licence lapses does this to
+ * every caller at once.
+ *
+ * It is the same failure this module exists for: a blanket 403 reads as bad
+ * credentials or missing permissions, so the obvious responses are to
+ * re-authenticate, check the account, or retry — none of which can work, and
+ * all of which look reasonable. The one call that still answers is the one that
+ * says why.
+ *
+ * Matched on two independent signals because the exact body shape was read as
+ * text at the time and not captured as JSON. Requiring either the message or
+ * the code, rather than a precise structure, keeps this working if the envelope
+ * differs from what was seen; requiring one of them keeps it from firing on
+ * every 403.
+ */
+const LICENCE_INVALID_MESSAGE = /license\s+is\s+invalid/i;
+const LICENCE_INVALID_CODE = /["']?errorCode["']?\s*[:=]\s*1312\b/;
+
+export function licenceFailureNote(status: number, body: unknown): string | undefined {
+  if (status !== 403) return undefined;
+  let text: string;
+  try {
+    text = typeof body === "string" ? body : JSON.stringify(body ?? "");
+  } catch {
+    return undefined;
+  }
+  if (!LICENCE_INVALID_MESSAGE.test(text) && !LICENCE_INVALID_CODE.test(text)) return undefined;
+  return (
+    "This 403 is the deployment's licence, not your credentials: the API answers errorCode 1312, " +
+    '"License is invalid", on every operation while the licence is lapsed or does not cover the ' +
+    "feature. Re-authenticating and retrying cannot fix it. GET /api/licenses/ainvr keeps working " +
+    "through this and reports licenseState and expiry_date, which is where the real answer is."
+  );
+}

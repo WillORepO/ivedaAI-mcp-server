@@ -2,7 +2,7 @@ import { basename } from "node:path";
 import { fetch, FormData, type Response } from "undici";
 import type { Operation, ParamDef } from "./swagger.js";
 import type { TokenManager } from "./auth.js";
-import { connectionFailureMessage } from "./netError.js";
+import { connectionFailureMessage, licenceFailureNote } from "./netError.js";
 import { readUploadFile, type UploadPolicy } from "./uploadPath.js";
 import { redactSecrets } from "./redact.js";
 import { stripInlineMediaFromCollections } from "./inlineMedia.js";
@@ -30,7 +30,12 @@ export interface OperationResult {
   isBinary?: boolean;
   /** True when the body was cut off at the byte cap. */
   truncated?: boolean;
-  /** Present when `truncated`: what the caller should do about it. */
+  /**
+   * What the caller should do about a response that needs explaining.
+   *
+   * Set on a truncated body, and on a 403 that is the deployment licence
+   * rather than the credentials. Never both: a licence refusal is small.
+   */
   note?: string;
   /** True when reading the body hit the timeout (typical for SSE/MJPEG streams); body holds what was read. */
   timedOut?: boolean;
@@ -654,6 +659,8 @@ export async function executeOperation(
     }
   });
 
+  const licenceNote = licenceFailureNote(response.status, parsedBody);
+
   return {
     url: url.toString(),
     method: operation.method,
@@ -675,6 +682,11 @@ export async function executeOperation(
             `because a larger response may exceed what this client can accept.`,
         }
       : {}),
+    // A licence failure is not a truncation, so it cannot collide with the note
+    // above: that one only appears on a body too large to parse, and this one
+    // only on a 403. Ordered after it regardless, so a truncated body keeps the
+    // note that explains why it will not parse.
+    ...(!truncated && licenceNote ? { note: licenceNote } : {}),
     ...(timedOut ? { timedOut } : {}),
     ...(image ? { image } : {}),
   };
