@@ -6,7 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `GET /api/alerts` says how to count a collection too large to read: filter, set `size=1`, and
+  read `pagination.total`. A live deployment held 227,600 alerts for one week, so paging the
+  collection to answer a question about it never finishes. It also points at
+  `GET /api/alerts/latest` for what is happening now.
 
 ## [1.0.0] — 2026-08-27
 

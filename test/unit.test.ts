@@ -1993,7 +1993,15 @@ describe("capability notes", () => {
     // deployment, not inferred — rather than a number. This cap exists to make
     // drift into general commentary visible, so it should be raised
     // deliberately and not as a reflex when the next note is written.
-    expect(Object.keys(CAPABILITY_NOTES).length).toBeLessThan(8);
+    //
+    // Raised from 8 to 9 for GET /api/alerts, deliberately. That note is about
+    // the shape of the answer rather than the shape of the call: a live
+    // deployment held 227,600 alerts for one week, and a model left to page
+    // the collection to summarise an hour does not get a wrong answer, it
+    // never finishes. Two independent live runs both had to discover the
+    // filter/size=1/pagination.total technique for themselves before they
+    // could answer at all.
+    expect(Object.keys(CAPABILITY_NOTES).length).toBeLessThan(9);
   });
 });
 
