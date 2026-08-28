@@ -46,6 +46,19 @@
  * the outlier: of the 35 request schemas that declare required fields at all,
  * the rest look right.
  *
+ * `GET /api/alerts` is noted for a reason none of the others share: the shape of
+ * the answer, not the shape of the call. A live deployment returned 227,600
+ * alerts for a single week, which is 113,800 pages at the size a response cap
+ * allows — a model asked to summarise the last hour and left to page the
+ * collection does not get a wrong answer, it never finishes.
+ *
+ * Two independent live runs, given the same operator question, both arrived at
+ * the same technique: filter, set size=1, and read `pagination.total`. Each such
+ * call costs about 0.7 KB and yields an exact count, and repeating it per
+ * alertType, per camera, per state and per rule produced a full breakdown of
+ * 1,825 alerts for roughly 28 KB. That is the difference between the question
+ * being answerable and not, and both runs spent calls discovering it.
+ *
  * The activation note also carries the asymmetry between its two directions,
  * because both surprises land on whoever sets several cameras at once:
  *
@@ -117,6 +130,14 @@ export const CAPABILITY_NOTES: Record<string, string> = {
     "record does not start the camera either; it stays Idle until activated. For onboarding a real camera " +
     "prefer the ivedaai_add_camera tool, which supplies these and the other defaults, activates the camera, " +
     "and cleans up after a partial create.",
+
+  "GET /api/alerts":
+    "NOTE: on an active deployment this collection is very large — hundreds of thousands of records over a "
+    + "week is normal — so it cannot be read through to answer a question about it. To count, send the "
+    + "filters you care about with size=1 and read pagination.total: that is an exact figure for well under "
+    + "a kilobyte, and start/end, alertTypes, states, cameraIds and alertRuleIds all combine. Repeat it per "
+    + "value to break a total down. Use GET /api/alerts/latest for what is happening now rather than paging "
+    + "this one from the start.",
 
   "GET /api/cameras":
     'NOTE: isActivate filters on whether a camera is actively processing. The camera record carries no ' +
