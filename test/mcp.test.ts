@@ -1156,6 +1156,40 @@ describe("MCP server over stdio", () => {
     });
   }, 60_000);
 
+  it("names the hand-written tools it actually registered", async () => {
+    // These two lines used to contradict each other two lines apart: read-only
+    // announced it was not registering the write tools, then the banner listed
+    // them as registered. The behaviour was right and only the message was
+    // wrong, which is the harder kind of wrong — an operator reading it has no
+    // reason to doubt it.
+    await withClient({ IVEDAAI_READ_ONLY: "true" }, async (c) => {
+      await c.start();
+      const tools = (await c.call("tools/list")).result.tools as Array<{ name: string }>;
+      const served = new Set(tools.map((t) => t.name));
+      const banner = c.stderr.join("").split("\n").find((l) => l.includes("running")) ?? "";
+
+      expect(banner).toContain("ivedaai_get_schema");
+      // Asserted against what tools/list actually offers, not against the
+      // policy — restating the policy is what let these drift apart.
+      for (const name of ["ivedaai_alert_integration", "ivedaai_add_camera"]) {
+        expect(served.has(name), `${name} served`).toBe(false);
+        expect(banner.includes(name), `${name} in banner`).toBe(false);
+      }
+    });
+  }, 60_000);
+
+  it("names all three when writes are allowed", async () => {
+    await withClient({}, async (c) => {
+      await c.start();
+      const tools = (await c.call("tools/list")).result.tools as Array<{ name: string }>;
+      const served = new Set(tools.map((t) => t.name));
+      const banner = c.stderr.join("").split("\n").find((l) => l.includes("running")) ?? "";
+      for (const name of ["ivedaai_get_schema", "ivedaai_alert_integration", "ivedaai_add_camera"]) {
+        expect(served.has(name), `${name} served`).toBe(true);
+        expect(banner.includes(name), `${name} in banner`).toBe(true);
+      }
+    });
+  }, 60_000);
   it("warns on stderr about plain HTTP to a non-loopback host", async () => {
     await withClient({ IVEDAAI_BASE_URL: "http://192.0.2.10" }, async (c) => {
       await c.start().catch(() => undefined);

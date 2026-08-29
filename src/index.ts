@@ -357,6 +357,23 @@ for (const group of ctx.tags) {
   );
 }
 
+/**
+ * The hand-written tools this process actually registered.
+ *
+ * Recorded as each one registers rather than listed in the banner, because a
+ * list restates the policy and a restatement can disagree with it. It did: a
+ * read-only server printed
+ *
+ *   read-only: not registering ivedaai_alert_integration or ivedaai_add_camera
+ *   running, 63 resource tools + ivedaai_get_schema + ivedaai_alert_integration
+ *   + ivedaai_add_camera registered
+ *
+ * two lines apart. The behaviour was right — a live check found 55 tools and no
+ * writes offered — and only the second line was wrong, which is the harder kind
+ * of wrong: an operator reading it has no reason to doubt it.
+ */
+const registeredHandWrittenTools: string[] = [];
+
 server.registerTool(
   "ivedaai_get_schema",
   {
@@ -389,6 +406,7 @@ server.registerTool(
     return { content: [{ type: "text", text: resultText(payload) }], structuredContent: payload };
   }
 );
+registeredHandWrittenTools.push("ivedaai_get_schema");
 
 function findOperation(id: string): Operation | undefined {
   for (const group of ctx.tags) {
@@ -573,6 +591,7 @@ if (ACCESS_POLICY.readOnly) {
       }
     }
   );
+  registeredHandWrittenTools.push("ivedaai_alert_integration");
 }
 
 const createCameraOp = findOperation("POST /api/cameras");
@@ -718,6 +737,7 @@ if (ACCESS_POLICY.readOnly) {
       }
     }
   );
+  registeredHandWrittenTools.push("ivedaai_add_camera");
 }
 
 const transport = new StdioServerTransport();
@@ -728,5 +748,5 @@ transport.send = async (message: JSONRPCMessage): Promise<void> => {
 };
 await server.connect(transport);
 console.error(
-  `[ivedaai-mcp-server] running, ${seenNames.size} resource tools + ivedaai_get_schema + ivedaai_alert_integration + ivedaai_add_camera registered`
+  `[ivedaai-mcp-server] running, ${seenNames.size} resource tools${registeredHandWrittenTools.length ? ` + ` + registeredHandWrittenTools.join(" + ") : ""} registered`
 );
