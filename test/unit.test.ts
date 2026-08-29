@@ -42,6 +42,7 @@ import {
   classifySubresource,
 } from "../src/roundTrip.js";
 import { redactSecrets } from "../src/redact.js";
+import { licenceFailureNote } from "../src/netError.js";
 import { stripInlineMediaFromCollections } from "../src/inlineMedia.js";
 import { buildCameraBody, defaultRoiContour } from "../src/cameraOnboarding.js";
 import {
@@ -1329,6 +1330,46 @@ describe("stripInlineMediaFromCollections", () => {
     const out = stripInlineMediaFromCollections({ content: [{ long, condition }] }) as any;
     expect(out.content[0].long).toBe(long);
     expect(out.content[0].condition).toBe(condition);
+  });
+});
+describe("licenceFailureNote", () => {
+  // Observed live over several days: every operation answered 403
+  // AccessDeniedException, errorCode 1312, "License is invalid", while
+  // GET /api/licenses kept working. A blanket 403 reads as bad credentials, so
+  // the obvious responses — re-authenticate, check the account, retry — all
+  // look reasonable and none of them can work.
+  it("explains a licence refusal from the message alone", () => {
+    const body = { errorType: "AccessDeniedException", message: "License is invalid" };
+    const note = licenceFailureNote(403, body);
+    expect(note).toBeDefined();
+    expect(note).toContain("not your credentials");
+    expect(note).toContain("GET /api/licenses/ainvr");
+  });
+
+  it("explains it from the code alone", () => {
+    // Two independent signals, because the exact envelope was read as text at
+    // the time and not captured as JSON. Either one is enough.
+    expect(licenceFailureNote(403, { errorCode: 1312, message: "Forbidden" })).toBeDefined();
+  });
+
+  it("handles a body that arrived as text rather than parsed JSON", () => {
+    expect(licenceFailureNote(403, '{"errorCode":1312,"message":"License is invalid"}')).toBeDefined();
+  });
+
+  it("stays quiet on an ordinary 403", () => {
+    // The failure mode to avoid is telling someone with a genuine permissions
+    // problem to go and read the licence.
+    expect(licenceFailureNote(403, { message: "Access denied for user" })).toBeUndefined();
+    expect(licenceFailureNote(403, { errorCode: 1313, message: "Forbidden" })).toBeUndefined();
+    expect(licenceFailureNote(403, null)).toBeUndefined();
+  });
+
+  it("stays quiet on any other status, even saying the same thing", () => {
+    // A 200 mentioning a licence is GET /api/licenses doing its job.
+    const body = { errorCode: 1312, message: "License is invalid" };
+    expect(licenceFailureNote(200, body)).toBeUndefined();
+    expect(licenceFailureNote(401, body)).toBeUndefined();
+    expect(licenceFailureNote(500, body)).toBeUndefined();
   });
 });
 describe("redactSecrets", () => {

@@ -12,6 +12,11 @@ All notable changes to this project are documented here. The format follows
   read `pagination.total`. A live deployment held 227,600 alerts for one week, so paging the
   collection to answer a question about it never finishes. It also points at
   `GET /api/alerts/latest` for what is happening now.
+- A 403 that is the deployment licence rather than the caller's credentials now says so. Every
+  operation answers errorCode 1312, "License is invalid", while the licence is lapsed, which reads
+  as an authentication failure — so re-authenticating and retrying both look reasonable and neither
+  can work. The note points at `GET /api/licenses/ainvr`, which keeps working and reports
+  `licenseState` and `expiry_date`.
 
 ## [1.0.0] — 2026-08-27
 
