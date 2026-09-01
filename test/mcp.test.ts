@@ -22,6 +22,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { loadSwagger, tagToToolName } from "../src/swagger.js";
+import { policyFromEnv, allowedOperations } from "../src/accessPolicy.js";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
@@ -1156,6 +1158,73 @@ describe("MCP server over stdio", () => {
     });
   }, 60_000);
 
+  it("declares only the argument fields its operations can use", async () => {
+    // All four of path/query/body/file used to be declared on all 63 generated
+    // tools. A field no operation accepts is paid on connect by every client and
+    // invites a call that can only fail. Worst under read-only, where body and
+    // file were on all 54 tools and usable by none.
+    //
+    // Derived from the spec here, not listed: a hardcoded expectation would
+    // have to be edited whenever the spec changes, and would then be asserting
+    // the edit rather than the behaviour.
+    await withClient({}, async (c) => {
+      await c.start();
+      const tools = (await c.call("tools/list")).result.tools as Array<{
+        name: string;
+        inputSchema?: { properties?: Record<string, unknown> };
+      }>;
+      const byName = new Map(tools.map((t) => [t.name, t]));
+
+      const ctx = loadSwagger();
+      const policy = policyFromEnv();
+      let checked = 0;
+      let droppedSomething = 0;
+
+      for (const group of ctx.tags) {
+        const ops = allowedOperations(group.operations, policy);
+        if (ops.length === 0) continue;
+        const tool = byName.get(tagToToolName(group.tag));
+        if (!tool) continue;
+        const declared = tool.inputSchema?.properties ?? {};
+        const expected = {
+          path: ops.some((o) => o.parameters.some((p) => p.in === "path")),
+          query: ops.some((o) => o.parameters.some((p) => p.in === "query")),
+          body: ops.some((o) => o.parameters.some((p) => p.in === "body")),
+          file: ops.some((o) => o.parameters.some((p) => p.in === "formData" && p.type === "file")),
+        };
+        for (const [field, reachable] of Object.entries(expected)) {
+          expect(field in declared, `${tool.name}.${field} declared`).toBe(reachable);
+          if (!reachable) droppedSomething++;
+        }
+        // The operation enum is never conditional.
+        expect("operation" in declared, `${tool.name}.operation`).toBe(true);
+        checked++;
+      }
+
+      // Both halves must actually be exercised, or this passes by asserting
+      // nothing: some tools keep every field, and some drop at least one.
+      expect(checked).toBeGreaterThan(50);
+      expect(droppedSomething).toBeGreaterThan(0);
+    });
+  }, 60_000);
+
+  it("offers no body or file at all in read-only mode", async () => {
+    // The sharpest case: with every write withheld, nothing behind any tool can
+    // accept a body or an upload, so declaring either is pure cost.
+    await withClient({ IVEDAAI_READ_ONLY: "true" }, async (c) => {
+      await c.start();
+      const tools = (await c.call("tools/list")).result.tools as Array<{
+        name: string;
+        inputSchema?: { properties?: Record<string, unknown> };
+      }>;
+      const offenders = tools
+        .filter((t) => "body" in (t.inputSchema?.properties ?? {}) || "file" in (t.inputSchema?.properties ?? {}))
+        .map((t) => t.name);
+      expect(offenders).toEqual([]);
+      // Still a usable tool list, not an empty one.
+      expect(tools.length).toBeGreaterThan(50);
+    });
+  }, 60_000);
   it("names the hand-written tools it actually registered", async () => {
     // These two lines used to contradict each other two lines apart: read-only
     // announced it was not registering the write tools, then the banner listed
