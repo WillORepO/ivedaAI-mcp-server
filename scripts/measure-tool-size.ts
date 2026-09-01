@@ -18,6 +18,9 @@
  *
  * Usage: npm run measure  (no deployment or credentials needed)
  */
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
 import { stripSchemaDialect } from "../src/schemaDialect.js";
@@ -166,13 +169,151 @@ console.log(
 for (const t of handWritten) {
   console.log(`                      ${t.tool.padEnd(28)} ${fmt(t.chars)} chars + ${fmt(t.schemaChars)} schema`);
 }
-console.log(
-  `\n  EVERYTHING a client loads on connect: ${fmt(connectTotal)} chars  (~${fmt(approxTokens(connectTotal))} tokens)`
-);
-console.log(`\n  live-testing cautions: ${fmt(warningChars)} chars (~${fmt(approxTokens(warningChars))} tokens), ` +
-  `${((warningChars / total) * 100).toFixed(1)}% of the total, across ${warnedOps} of ${totalOps} operations`);
+/**
+ * What a client is actually sent, taken from the server rather than rebuilt.
+ *
+ * Everything above this line is reconstructed: the descriptions are regenerated
+ * from the spec and the output schemas converted a second time. That is useful
+ * for attribution — it says where the characters go — but it can only count the
+ * things it knows to look for, and for a long time it did not know to look for
+ * `inputSchema` at all. It was reporting 106,001 characters against a real
+ * 190,727: **44% low**, and every budget figure quoted in this repository, the
+ * changelog and the hand-off inherited that error.
+ *
+ * The lesson is the one the startup banner taught the same week. A description
+ * of what a program does can disagree with the program; a reading of the program
+ * cannot. So the authoritative figure now comes from `tools/list` on a real
+ * server, and the reconstruction is checked against it rather than trusted.
+ *
+ * The server is spawned with an unreachable base URL and junk credentials — it
+ * builds its tool list from the bundled spec and opens no connection to do it.
+ * IVEDAAI_READ_ONLY passes through, so a read-only budget still measures the
+ * read-only surface.
+ */
+interface ListedTool {
+  name: string;
+  title?: string;
+  description?: string;
+  inputSchema?: unknown;
+  outputSchema?: unknown;
+  annotations?: unknown;
+}
 
-console.log(`\n  largest tools:`);
+async function toolsListFromServer(): Promise<{ tools: ListedTool[]; wholeResult: number }> {
+  const dist = fileURLToPath(new URL("../dist/index.js", import.meta.url));
+  if (!existsSync(dist)) {
+    console.error(
+      "measure: dist/index.js not found. This script now reads the real tools/list rather than\n" +
+        "rebuilding it, so the server has to be built first: npm run build"
+    );
+    process.exit(1);
+  }
+
+  const child = spawn(process.execPath, [dist], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      IVEDAAI_BASE_URL: "http://127.0.0.1:1",
+      IVEDAAI_USERNAME: "unused",
+      IVEDAAI_PASSWORD: "unused",
+    },
+  });
+  child.stderr.resume();
+
+  let buffer = "";
+  const pending = new Map<number, (m: Record<string, unknown>) => void>();
+  child.stdout.on("data", (chunk: Buffer) => {
+    buffer += chunk.toString();
+    let cut: number;
+    while ((cut = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, cut).trim();
+      buffer = buffer.slice(cut + 1);
+      if (!line) continue;
+      try {
+        const message = JSON.parse(line) as { id?: number };
+        const resolve = typeof message.id === "number" ? pending.get(message.id) : undefined;
+        if (resolve) {
+          pending.delete(message.id as number);
+          resolve(message as Record<string, unknown>);
+        }
+      } catch {
+        // stdout belongs to JSON-RPC; anything else is not ours to interpret.
+      }
+    }
+  });
+
+  const send = (id: number, method: string, params: unknown) =>
+    new Promise<Record<string, unknown>>((resolve, reject) => {
+      pending.set(id, resolve);
+      child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+      setTimeout(() => reject(new Error(`measure: timed out waiting for ${method}`)), 30_000);
+    });
+
+  try {
+    await send(1, "initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "measure", version: "0" },
+    });
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+    const listed = await send(2, "tools/list", {});
+    const result = (listed.result ?? {}) as { tools?: ListedTool[] };
+    return { tools: result.tools ?? [], wholeResult: JSON.stringify(result).length };
+  } finally {
+    child.kill();
+  }
+}
+
+const { tools: listedTools, wholeResult } = await toolsListFromServer();
+
+const jsonSize = (value: unknown) => (value === undefined ? 0 : JSON.stringify(value).length);
+let realDescriptions = 0;
+let realInput = 0;
+let realOutput = 0;
+let realNamesAndAnnotations = 0;
+let realOperationEnums = 0;
+for (const tool of listedTools) {
+  realDescriptions += (tool.description ?? "").length + (tool.title ?? "").length;
+  realInput += jsonSize(tool.inputSchema);
+  realOutput += jsonSize(tool.outputSchema);
+  realNamesAndAnnotations += tool.name.length + jsonSize(tool.annotations);
+  const operationEnum = (tool.inputSchema as { properties?: { operation?: { enum?: unknown } } } | undefined)
+    ?.properties?.operation?.enum;
+  realOperationEnums += jsonSize(operationEnum);
+}
+
+console.log(`\n  WHAT A CLIENT ACTUALLY RECEIVES (tools/list, ${listedTools.length} tools)\n`);
+const line = (label: string, chars: number) =>
+  console.log(
+    `    ${label.padEnd(26)} ${fmt(chars).padStart(8)} chars  ~${fmt(approxTokens(chars)).padStart(6)} tok  ` +
+      `${((chars / wholeResult) * 100).toFixed(0).padStart(3)}%`
+  );
+line("descriptions + titles", realDescriptions);
+line("input schemas", realInput);
+console.log(`      of which operation enums ${fmt(realOperationEnums).padStart(6)} chars`);
+line("output schemas", realOutput);
+line("names + annotations", realNamesAndAnnotations);
+console.log(`    ${"-".repeat(56)}`);
+line("TOTAL on connect", wholeResult);
+
+// The reconstruction above is only worth keeping if it still describes the
+// server. This is the check that says so.
+const gap = wholeResult - connectTotal;
+console.log(
+  `\n  reconstructed above: ${fmt(connectTotal)} chars — ` +
+    `${gap === 0 ? "reconciled" : `${fmt(gap)} chars short (${((gap / wholeResult) * 100).toFixed(0)}%)`}`
+);
+console.log(
+  `    The gap is structural, not an error: the breakdown above attributes\n` +
+    `    descriptions and output schemas, and does not model input schemas,\n` +
+    `    tool names or annotations. Use the TOTAL for budget decisions and the\n` +
+    `    breakdown for deciding what to trim.`
+);
+
+console.log(`\n  live-testing cautions: ${fmt(warningChars)} chars (~${fmt(approxTokens(warningChars))} tokens), ` +
+  `${((warningChars / wholeResult) * 100).toFixed(1)}% of what a client receives, across ${warnedOps} of ${totalOps} operations`);
+
+console.log(`\n  largest tools by description:`);
 for (const t of perTool.slice(0, 10)) {
   console.log(
     `    ${t.tool.padEnd(30)} ${fmt(t.chars).padStart(7)} chars  ~${fmt(approxTokens(t.chars)).padStart(6)} tok  ` +
@@ -181,10 +322,11 @@ for (const t of perTool.slice(0, 10)) {
 }
 
 // A rough sense of what fraction of a session's budget this claims, since that is
-// the decision the number actually informs.
-console.log(`\n  as a share of a client's context window (descriptions + output schemas):`);
+// the decision the number actually informs. Measured against the real total, not
+// the reconstruction — the earlier figures were computed on a base 44% too small.
+console.log(`\n  as a share of a client's context window:`);
 for (const window of [32_000, 128_000, 200_000, 1_000_000]) {
-  const pct = (approxTokens(total + outputSchemaTotal) / window) * 100;
+  const pct = (approxTokens(wholeResult) / window) * 100;
   console.log(`    ${fmt(window).padStart(9)} tokens: ${pct.toFixed(1)}%`);
 }
 console.log(
