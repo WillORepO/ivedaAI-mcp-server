@@ -219,6 +219,30 @@ for (const group of ctx.tags) {
   // a tag is enough to make "repeating this changes nothing" a lie.
   const isIdempotent = operations.every((o) => IDEMPOTENT_METHODS.has(o.method));
 
+  /**
+   * Which argument fields any operation behind this tool can actually use.
+   *
+   * All four used to be declared on all 63 generated tools. A field no
+   * operation accepts is not neutral: it is paid on connect by every client,
+   * and it invites a call that can only fail. Under IVEDAAI_READ_ONLY the
+   * effect was at its worst — `body` and `file` were declared on all 54 tools
+   * and usable by none of them, because no write is offered at all.
+   *
+   * Derived from the operations this tool ended up with, for the same reason
+   * the annotations above are: the access policy has already filtered them, so
+   * anything computed from the raw tag would describe a tool that is not being
+   * registered.
+   *
+   * Measured with `npm run measure`: 22,450 characters off the default surface
+   * and 26,096 off the read-only one.
+   */
+  const acceptsPath = operations.some((o) => o.parameters.some((p) => p.in === "path"));
+  const acceptsQuery = operations.some((o) => o.parameters.some((p) => p.in === "query"));
+  const acceptsBody = operations.some((o) => o.parameters.some((p) => p.in === "body"));
+  const acceptsFile = operations.some((o) =>
+    o.parameters.some((p) => p.in === "formData" && p.type === "file")
+  );
+
   server.registerTool(
     toolName,
     {
@@ -255,20 +279,38 @@ for (const group of ctx.tags) {
       },
       inputSchema: {
         operation: z.enum(operationIds).describe("Which API operation to call, from the list in this tool's description."),
-        path: z
-          .record(z.union([z.string(), z.number(), z.boolean()]))
-          .optional()
-          .describe("Path parameters, e.g. { \"cameraId\": 12 }"),
-        query: z.record(z.any()).optional().describe("Query string parameters for this operation."),
-        body: z.any().optional().describe("JSON request body, or form field values when uploading a file."),
-        file: z
-          .object({
-            path: z.string().describe("Local filesystem path to the file to upload."),
-            filename: z.string().optional(),
-            contentType: z.string().optional(),
-          })
-          .optional()
-          .describe("Local file to upload, for operations that accept a file."),
+        // Spread rather than listed: see acceptsPath and friends above.
+        ...(acceptsPath
+          ? {
+              path: z
+                .record(z.union([z.string(), z.number(), z.boolean()]))
+                .optional()
+                .describe("Path parameters, e.g. { \"cameraId\": 12 }"),
+            }
+          : {}),
+        ...(acceptsQuery
+          ? { query: z.record(z.any()).optional().describe("Query string parameters for this operation.") }
+          : {}),
+        ...(acceptsBody
+          ? {
+              body: z
+                .any()
+                .optional()
+                .describe("JSON request body, or form field values when uploading a file."),
+            }
+          : {}),
+        ...(acceptsFile
+          ? {
+              file: z
+                .object({
+                  path: z.string().describe("Local filesystem path to the file to upload."),
+                  filename: z.string().optional(),
+                  contentType: z.string().optional(),
+                })
+                .optional()
+                .describe("Local file to upload, for operations that accept a file."),
+            }
+          : {}),
       },
       // Every operation on every tag answers with the same envelope, so one
       // declared shape covers all 316 of them. See src/outputSchema.ts for why

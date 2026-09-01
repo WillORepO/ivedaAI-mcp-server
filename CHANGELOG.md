@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- A generated tool declares only the argument fields its operations can actually use. All of
+  `path`, `query`, `body` and `file` were declared on every tool; under `IVEDAAI_READ_ONLY` that
+  meant `body` and `file` on all 54 tools and usable by none, since no write is offered. Measured:
+  190,727 to 168,277 characters on connect by default, 127,934 to 101,838 read-only.
+
 ### Added
 
 - `GET /api/alerts` says how to count a collection too large to read: filter, set `size=1`, and
