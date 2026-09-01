@@ -193,10 +193,18 @@ describe("what the spec declares vs what the server accepts", () => {
         IVEDAAI_ALLOW_COLLECTION_DELETE: "false",
       },
     });
-    expect(output).toContain(
-      "live-testing cautions: 0 chars (~0 tokens), 0.0% of the total, across 0 of 295 operations"
-    );
-  });
+    // Split across the two halves that carry the meaning: none of the bundled
+    // findings were counted, and the operation count is still right. The
+    // percentage clause between them is prose and has already been reworded
+    // once, which broke this assertion without anything being wrong.
+    expect(output).toContain("live-testing cautions: 0 chars (~0 tokens)");
+    expect(output).toContain("across 0 of 295 operations");
+    // The spawned server must read the operator-supplied spec too, or this
+    // would be measuring the bundled one and passing for the wrong reason.
+    expect(output).toContain("WHAT A CLIENT ACTUALLY RECEIVES");
+    // measure now starts a real server to read tools/list, so this is no
+    // longer a five-second script.
+  }, 60_000);
 
   it("publishes the counting finding in the generated tool reference", () => {
     const generated = readFileSync(join(__dirname, "..", "docs", "TOOLS.md"), "utf8");
