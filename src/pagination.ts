@@ -177,6 +177,19 @@ export function summarisePage(body: unknown): PageSummary | undefined {
  * better move than walking it, and because a page large enough to breach the
  * response cap is the other way this goes wrong.
  */
+/**
+ * A note on `size`, for whoever next tries to make a count cheaper.
+ *
+ * Spring ignores `size=0` and serves the default page instead. Measured on
+ * GET /api/alerts: the request looked like the cheapest possible count and came
+ * back as roughly twenty full alert records, which exceeded the response cap and
+ * was truncated — the most expensive way to ask, arrived at by trying to find
+ * the least expensive one. `size=1` is the floor.
+ *
+ * Recorded here rather than in the note text because it is true of every paged
+ * operation, and paying for it on all 36 of them would cost more than the
+ * mistake does.
+ */
 export function pageNote(summary: PageSummary, request?: PaginationRequest): string | undefined {
   if (!summary.hasMore) return undefined;
   const seen = summary.total !== undefined ? `${summary.count} of ${summary.total} records` : `${summary.count} records`;
