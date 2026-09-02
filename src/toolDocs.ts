@@ -289,7 +289,8 @@ export const SERVER_INSTRUCTIONS =
  * prevent. Naming the cause where the model is already looking is cheaper.
  */
 export const READ_ONLY_NOTE =
-  `This server is running read-only (IVEDAAI_READ_ONLY=true), so only GET operations are listed. The ` +
+  `This server is running read-only (IVEDAAI_READ_ONLY=true), so only operations that read are ` +
+  `listed — that includes a few POSTs whose bodies carry a query rather than a change. The ` +
   `write operations exist in the IvedaAI API but are withheld here: a call naming one is rejected as an ` +
   `invalid "operation" value. Treat that rejection as this server's policy, not as evidence the API ` +
   `lacks the operation, and report it that way rather than concluding the capability is missing.`;
@@ -301,7 +302,7 @@ export const READ_ONLY_NOTE =
  * withholding the writes has already saved far more than this costs.
  */
 export const READ_ONLY_TOOL_NOTE =
-  `Read-only mode: only GET operations are listed. Writes are withheld by this server, not absent from ` +
+  `Read-only mode: only operations that read are listed. Writes are withheld by this server, not absent from ` +
   `the API.`;
 
 /**

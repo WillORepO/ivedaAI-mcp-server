@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `IVEDAAI_READ_ONLY` judges an operation by what it does rather than by its HTTP method. This API
+  uses POST wherever a query needs a request body, so three alert operations that only read —
+  `statistics`, `_search` and `latest` — were being withheld. Without the aggregation endpoint,
+  counting alerts by camera cost one call per camera; with it, one call. Every entry in the
+  allowlist was verified against a live deployment with the audit trail as witness.
 - A generated tool declares only the argument fields its operations can actually use. All of
   `path`, `query`, `body` and `file` were declared on every tool; under `IVEDAAI_READ_ONLY` that
   meant `body` and `file` on all 54 tools and usable by none, since no write is offered. Measured:

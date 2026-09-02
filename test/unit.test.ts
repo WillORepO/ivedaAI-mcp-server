@@ -1717,10 +1717,35 @@ describe("access policy", () => {
     expect(all.length - allowed.length, "expected the collection deletes to be filtered").toBeGreaterThan(20);
   });
 
-  it("leaves only GETs when read-only", () => {
+  it("leaves only operations that read when read-only", () => {
+    // Was "only GETs". This API uses POST wherever a query needs a request
+    // body, so the method stopped predicting the effect and the policy now
+    // judges by effect — see READ_SAFE_WRITES, every entry of which was checked
+    // against a live deployment with the audit trail as the witness.
     const allowed = ctx.tags.flatMap((g) => allowedOperations(g.operations, readOnly));
-    expect(allowed.every((o) => o.method === "GET")).toBe(true);
+    const nonGet = allowed.filter((o) => o.method !== "GET").map((o) => o.id);
+    expect(nonGet.sort()).toEqual([
+      "POST /api/alerts/_search",
+      "POST /api/alerts/latest",
+      "POST /api/alerts/statistics",
+    ]);
     expect(allowed.length).toBeGreaterThan(100);
+  });
+
+  it("still refuses the writes that gave read-only its point", () => {
+    // The allowlist is the dangerous direction: one wrong entry and a server
+    // advertised as read-only performs a write. These are the calls an operator
+    // sets the flag to prevent, and none of them may be reachable.
+    const allowed = new Set(ctx.tags.flatMap((g) => allowedOperations(g.operations, readOnly)).map((o) => o.id));
+    for (const op of [
+      "POST /api/cameras",
+      "DELETE /api/cameras/{cameraId}",
+      "PATCH /api/alertRules/{alertRuleId}",
+      "POST /api/cameras/{cameraId}/jobs",
+      "POST /api/false-report",
+    ]) {
+      expect(allowed.has(op), `${op} must stay refused`).toBe(false);
+    }
   });
 
   it("reads both switches from the environment", () => {

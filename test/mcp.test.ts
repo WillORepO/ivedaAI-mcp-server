@@ -416,11 +416,22 @@ describe("MCP server over stdio", () => {
     await withClient({ IVEDAAI_READ_ONLY: "true" }, async (c) => {
       await c.start();
       const tools = (await c.call("tools/list")).result.tools;
+      // Not "every operation is a GET" any more: a few POSTs carry a query in
+      // their body and only read, and read-only offers those. Anything else
+      // that is not a GET is a bug in READ_SAFE_WRITES.
+      const readSafe = new Set([
+        "POST /api/alerts/_search",
+        "POST /api/alerts/latest",
+        "POST /api/alerts/statistics",
+      ]);
       for (const tool of tools) {
         for (const op of operationsOf(tools, tool.name)) {
-          expect(op.startsWith("GET "), `${tool.name} offers ${op}`).toBe(true);
+          expect(op.startsWith("GET ") || readSafe.has(op), `${tool.name} offers ${op}`).toBe(true);
         }
       }
+      // And the aggregation is actually reachable, which is the point of the
+      // change: without it, counting by camera costs one call per camera.
+      expect(operationsOf(tools, "ivedaai_alert")).toContain("POST /api/alerts/statistics");
       // The hand-written write tools are not generated from the spec, so the
       // enum filter does not reach them — they must not be registered.
       expect(tools.map((t: any) => t.name)).not.toContain("ivedaai_add_camera");
@@ -1217,10 +1228,13 @@ describe("MCP server over stdio", () => {
         name: string;
         inputSchema?: { properties?: Record<string, unknown> };
       }>;
-      const offenders = tools
-        .filter((t) => "body" in (t.inputSchema?.properties ?? {}) || "file" in (t.inputSchema?.properties ?? {}))
-        .map((t) => t.name);
-      expect(offenders).toEqual([]);
+      // `file` still cannot be reached by anything read-only offers. `body`
+      // now can: the read-safe POSTs carry their query in one, so a tool
+      // exposing them declares it — and only those tools may.
+      const withFile = tools.filter((t) => "file" in (t.inputSchema?.properties ?? {})).map((t) => t.name);
+      expect(withFile).toEqual([]);
+      const withBody = tools.filter((t) => "body" in (t.inputSchema?.properties ?? {})).map((t) => t.name);
+      expect(withBody).toEqual(["ivedaai_alert"]);
       // Still a usable tool list, not an empty one.
       expect(tools.length).toBeGreaterThan(50);
     });
