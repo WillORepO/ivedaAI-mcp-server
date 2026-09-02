@@ -10,7 +10,7 @@
  *
  * Two switches, both closed by default in the direction that loses least:
  *
- *   IVEDAAI_READ_ONLY=true                  refuse every non-GET
+ *   IVEDAAI_READ_ONLY=true                  refuse everything that writes
  *   IVEDAAI_ALLOW_COLLECTION_DELETE=true    permit the collection-level DELETEs
  *
  * Collection deletes are refused unless explicitly enabled, because the failure
@@ -64,7 +64,7 @@ export function isCollectionDelete(op: Operation): boolean {
 }
 
 export interface AccessPolicy {
-  /** Refuse anything that is not a GET. */
+  /** Refuse anything that writes; see READ_SAFE_WRITES for the POSTs that do not. */
   readOnly: boolean;
   /** Permit DELETEs that address a collection rather than a record. */
   allowCollectionDelete: boolean;
@@ -85,11 +85,69 @@ export function policyFromEnv(env: NodeJS.ProcessEnv = process.env): AccessPolic
  * retry; naming the safe alternative and the switch that would permit it does
  * not.
  */
+/**
+ * Operations that are POSTs but only read, and are therefore offered in
+ * read-only mode.
+ *
+ * This API uses POST wherever a query needs a request body — a GET cannot
+ * reliably carry one — so the HTTP method stops predicting the effect. Filtering
+ * read-only on the method alone withheld the aggregation endpoint that answers
+ * the questions this server exists for, and the cost was measured rather than
+ * guessed: asked which camera raised the most alerts, a model with no
+ * aggregation counted them one camera at a time, taking 19, 23 and 50 calls
+ * across three runs of `evaluations/operational.xml`. The same question is one
+ * call and about 700 characters with `POST /api/alerts/statistics?by=camera`.
+ *
+ * Worse than the cost, a withheld operation is indistinguishable from a missing
+ * one. A model cannot tell "this server will not offer aggregation" from "this
+ * API has no aggregation", so it does not report that a cheaper route exists
+ * behind a setting the operator controls.
+ *
+ * ## The bar for an entry
+ *
+ * `IVEDAAI_READ_ONLY` is a promise that a model cannot alter the deployment.
+ * Admitting one operation that does write breaks that promise silently, and the
+ * operator finds out afterwards — the same dangerous direction as a wrong
+ * `CONFIRMED_UPDATE_SEMANTICS` entry, and the same rule applies: nothing goes in
+ * here on the strength of its name.
+ *
+ * Each entry below was called against a live deployment with three counters read
+ * immediately before and after — the alert collection, the face-target list, and
+ * the audit trail. The audit trail is the load-bearing one: this system records
+ * an entry when something changes, so a call that leaves it at the same count
+ * did not change anything it would admit to. All three held at 44,615 / 13 / 6
+ * across every call below.
+ *
+ * Deliberately absent, and why:
+ *
+ * - `POST /api/face/statistics`, `POST /api/face/search`,
+ *   `POST /api/scene-objects/search`, `POST /api/scene-objects/search/image` —
+ *   read-shaped by name, and probably safe, but probably is not the bar. The
+ *   first answered 400 to the body it was given, so the check never ran against
+ *   a successful call; the others need form or multipart bodies that were not
+ *   constructed. Verify the same way before adding them.
+ * - `POST /api/false-report` — genuinely writes. It sends a report onward.
+ */
+const READ_SAFE_WRITES: ReadonlySet<string> = new Set([
+  // Aggregation: counts grouped by camera, day, hour, minute, month, rule,
+  // state or type. The reason this table exists.
+  "POST /api/alerts/statistics",
+  // Both are AlertQuery searches that return records the GET endpoints also
+  // return; they exist as POSTs because the filter set does not fit in a URL.
+  "POST /api/alerts/_search",
+  "POST /api/alerts/latest",
+]);
+
+/** True when read-only should let this operation through despite its method. */
+export function isReadSafe(operation: Operation): boolean {
+  return READ_SAFE_WRITES.has(operation.id);
+}
+
 export function refusalReason(operation: Operation, policy: AccessPolicy): string | undefined {
-  if (policy.readOnly && operation.method !== "GET") {
+  if (policy.readOnly && operation.method !== "GET" && !isReadSafe(operation)) {
     return (
       `Refused: this server is running read-only, so ${operation.id} cannot be called. ` +
-      `Only GET operations are available. Unset IVEDAAI_READ_ONLY to allow writes.`
+      `Only operations that read are available. Unset IVEDAAI_READ_ONLY to allow writes.`
     );
   }
 
