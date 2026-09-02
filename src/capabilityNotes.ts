@@ -134,7 +134,8 @@ export const CAPABILITY_NOTES: Record<string, string> = {
   "GET /api/alerts":
     "NOTE: on an active deployment this collection is very large — hundreds of thousands of records over a "
     + "week is normal — so it cannot be read through to answer a question about it. To count, send the "
-    + "filters you care about with size=1 and read pagination.total: that is an exact figure for well under "
+    + "filters you care about with size=1 (not 0, which is ignored for a default page) and read "
+    + "pagination.total: that is an exact figure for well under "
     + "a kilobyte, and start/end, alertTypes, states, cameraIds and alertRuleIds all combine. Repeat it per "
     + "value to break a total down. Use GET /api/alerts/latest for what is happening now rather than paging "
     + "this one from the start.",
