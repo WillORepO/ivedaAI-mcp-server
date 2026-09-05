@@ -9,8 +9,9 @@ licence-plate watchlists.
 
 **Transports:** the default command uses stdio. An [authenticated HTTP preview](docs/REMOTE.md)
 is available through `node dist/http.js /protected/path/customer.json`: read-only, with a fixed
-customer server and explicit user-account mappings. It requires an OAuth identity provider and
-an HTTPS reverse proxy; real browser-client/TLS validation is still outstanding.
+customer server and isolated user accounts. Customers can use their existing IvedaAI login;
+no separate sign-in vendor is required. An HTTPS reverse proxy and approved AI-client callback
+configuration are needed; real browser-client/TLS validation is still outstanding.
 See [browser connection requirements](docs/BROWSER-READINESS.md) for deployment options.
 `IVEDAAI_BASE_URL` is the upstream application's address, not an MCP connection URL.
 

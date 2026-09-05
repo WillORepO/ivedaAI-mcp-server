@@ -1,11 +1,11 @@
-import { createServer, type IncomingMessage } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { type JWTVerifyGetKey } from "jose";
 import { TokenManager, type IvedaAIConfig } from "./auth.js";
 import { createIvedaServer } from "./server.js";
 import { loadSwagger, type SwaggerContext } from "./swagger.js";
 import { stripDialectsFromToolList } from "./schemaDialect.js";
-import { AuthenticationError, createAuthenticator, READ_SCOPE, type RemoteConfig } from "./remoteAuth.js";
+import { AuthenticationError, createAuthenticator, READ_SCOPE, type RemoteConfig, type RemoteSubject } from "./remoteAuth.js";
 
 class HttpError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -34,12 +34,17 @@ function readBody(req: IncomingMessage): Promise<unknown> {
 }
 
 /** One configured customer origin; no shared sessions, credentials or upstream tokens across requests. */
-export function createRemoteServer(config: RemoteConfig, dependencies: { keys?: JWTVerifyGetKey; context?: SwaggerContext } = {}) {
+export function createRemoteServer(config: RemoteConfig, dependencies: {
+  keys?: JWTVerifyGetKey;
+  context?: SwaggerContext;
+  authenticate?: (authorization: string | undefined) => Promise<RemoteSubject>;
+  routes?: (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
+} = {}) {
   const ctx = dependencies.context ?? loadSwagger();
   if (new URL(ctx.tokenUrl, config.upstreamOrigin).origin !== new URL(config.upstreamOrigin).origin) {
     throw new Error("OAuth token endpoint must belong to the configured upstream");
   }
-  const authenticate = createAuthenticator(config, dependencies.keys);
+  const authenticate = dependencies.authenticate ?? createAuthenticator(config, dependencies.keys);
   const publicUrl = new URL(config.publicUrl);
   const metadataUrl = `${publicUrl.origin}/.well-known/oauth-protected-resource`;
   const active = new Set<() => void>();
@@ -55,10 +60,12 @@ export function createRemoteServer(config: RemoteConfig, dependencies: { keys?: 
     let manager: TokenManager | undefined;
     let protocol: ReturnType<typeof createIvedaServer>["server"] | undefined;
     let subjectId: string | undefined;
+    let identitySignal: AbortSignal | undefined;
     let ended = false;
     const finish = () => {
       if (ended) return;
       ended = true; clearTimeout(timer); active.delete(stop);
+      identitySignal?.removeEventListener("abort", revoked);
       if (subjectId) {
         const count = (bySubject.get(subjectId) ?? 1) - 1;
         if (count) bySubject.set(subjectId, count); else bySubject.delete(subjectId);
@@ -67,6 +74,7 @@ export function createRemoteServer(config: RemoteConfig, dependencies: { keys?: 
       void protocol?.close().catch(() => {});
     };
     const stop = () => { reply(503, "Service stopping"); finish(); res.destroy(); };
+    const revoked = () => { reply(401, "Authorization ended"); finish(); res.destroy(); };
     const timer = setTimeout(() => { reply(504, "Request deadline exceeded"); finish(); req.destroy(); }, 30000);
     timer.unref(); active.add(stop);
     res.once("close", finish);
@@ -83,6 +91,7 @@ export function createRemoteServer(config: RemoteConfig, dependencies: { keys?: 
       const localHost = `127.0.0.1:${(http.address() as { port: number } | null)?.port}`;
       if (host !== publicUrl.host && host !== localHost) throw new HttpError(403, "Invalid host");
       if (req.headers.origin !== undefined && req.headers.origin !== publicUrl.origin) throw new HttpError(403, "Invalid origin");
+      if (dependencies.routes && await dependencies.routes(req, res)) return;
       if (req.url === "/.well-known/oauth-protected-resource" && req.method === "GET") {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ resource: config.publicUrl, authorization_servers: [config.issuer], scopes_supported: [READ_SCOPE], bearer_methods_supported: ["header"] }));
@@ -91,6 +100,9 @@ export function createRemoteServer(config: RemoteConfig, dependencies: { keys?: 
       if (req.url !== "/mcp") throw new HttpError(404, "Not found");
       const subject = await authenticate(req.headers.authorization);
       if (ended) return;
+      identitySignal = subject.signal;
+      if (identitySignal?.aborted) throw new AuthenticationError(401);
+      identitySignal?.addEventListener("abort", revoked, { once: true });
       if ((bySubject.get(subject.subject) ?? 0) >= 4) throw new HttpError(429, "Too many concurrent requests");
       subjectId = subject.subject; bySubject.set(subjectId, (bySubject.get(subjectId) ?? 0) + 1);
       if (req.method !== "POST") { res.setHeader("Allow", "POST"); throw new HttpError(405, "Method not allowed"); }

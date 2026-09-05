@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createRemoteJWKSet, customFetch, jwtVerify, type JWTVerifyGetKey } from "jose";
 
-const httpsUrl = z.string().url().refine(value => {
+export const httpsUrl = z.string().url().refine(value => {
   const u = new URL(value);
   return u.protocol === "https:" && !u.username && !u.password && !u.search && !u.hash;
 }, "Expected HTTPS URL without credentials, query or fragment");
@@ -23,7 +23,7 @@ export const remoteConfigSchema = z.object({
   }
 });
 export type RemoteConfig = z.infer<typeof remoteConfigSchema>;
-export type RemoteSubject = RemoteConfig["subjects"][number];
+export type RemoteSubject = RemoteConfig["subjects"][number] & { signal?: AbortSignal };
 export const READ_SCOPE = "ivedaai:read";
 
 // Fixed operator-configured JWKS origin. Never follow token-provided key URLs or redirects.

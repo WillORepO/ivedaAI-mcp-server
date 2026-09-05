@@ -2,14 +2,19 @@
 
 The repository now includes a read-only Streamable HTTP entry point, `dist/http.js`, alongside
 the unchanged stdio command. It is tested against local mock services and signed test tokens.
-It has **not** been deployed, linked to a real identity provider, or tested from a customer's
-ChatGPT workspace. Private-network relay support for other AI vendors is not implemented.
+Existing IvedaAI login, token exchange, a camera read, refresh and revocation also passed through
+a temporary loopback connector against the authorized test deployment. It has **not** been deployed
+or tested from a customer's ChatGPT workspace or through production TLS. Private-network relay
+support for other AI vendors is not implemented.
 
 ## One installation, explicit user accounts
 
 Run one instance per customer installation. Its configuration fixes the IvedaAI origin and maps
-verified OAuth subjects to individual IvedaAI accounts. Those accounts' application permissions
-remain authoritative. The incoming OAuth token is never forwarded to IvedaAI.
+users to their individual IvedaAI accounts. In the primary `auth: "ivedaai"` mode, users enter
+their existing IvedaAI username/password in the connector's HTTPS login page and consent to read
+access. The connector validates the login against that installation and issues a separate opaque
+MCP token. IvedaAI's application permissions remain authoritative. The MCP token is never
+forwarded to IvedaAI, and the AI client never receives the user's IvedaAI password.
 
 Each HTTP request gets a fresh MCP server and upstream token manager. There are no shared MCP
 sessions or persistent upstream token caches across requests. This trades additional upstream
@@ -20,10 +25,58 @@ and local-file uploads are disabled. Stdio's environment switches cannot enable 
 or uploads. The bundled read-only surface is 55 tools / 132 operations; review its full read
 surface against the intended users' application grants.
 
-## Identity provider requirements
+## Use existing IvedaAI login
 
-Use an existing OAuth/OIDC authorization server. This package implements the MCP resource server;
-it does not provide login pages, register OAuth clients, or issue access/refresh tokens. Configure
+No separate identity provider or duplicate user account is required. The connector supplies the
+OAuth compatibility layer using the MCP SDK's authorization-code/PKCE routes. It accepts only
+pre-registered public clients with exact HTTPS callback URLs and the `ivedaai:read` scope.
+Copy the exact redirect URI shown by the AI app into the configuration; do not guess a callback
+or allow wildcard destinations. Enter the matching client ID in the AI app's connection setup.
+See [OpenAI callback and OAuth requirements](https://developers.openai.com/plugins/build/auth).
+
+Create a protected installation configuration outside the repository:
+
+```json
+{
+  "auth": "ivedaai",
+  "publicUrl": "https://mcp.customer.example/mcp",
+  "upstreamOrigin": "https://ivedaai.customer.example",
+  "port": 3000,
+  "clients": [
+    {
+      "clientId": "customer-approved-ai",
+      "name": "Approved AI app",
+      "redirectUris": ["https://ai-app.example/exact-callback-from-app-settings"]
+    }
+  ]
+}
+```
+
+This configuration contains no IvedaAI passwords. Login passwords are retained in the connector's
+process memory for at most one hour to make upstream calls and revalidate refreshes. They are not
+written to a credential database or configuration file. Run under a protected service identity;
+process dumps or access to its memory can expose credentials. Dropping references is not a claim
+of secure memory erasure.
+
+Login attempts are protected by an expiring, single-use form transaction, secure HttpOnly cookie,
+same-origin check, CSRF token, explicit consent and attempt limits. Authorization codes last one
+minute and require the matching PKCE verifier, client, callback and resource. Access tokens last
+up to five minutes. Refresh tokens rotate; reusing an old refresh token revokes that grant.
+`/revoke` invalidates the entire grant and aborts its active MCP requests. The maximum grant
+lifetime is one hour, after which the user signs in again. Restart invalidates all grants.
+
+The preview keeps bounded grants and token hashes in memory. It does not provide durable login
+state, high-availability replication or dynamic client registration. It cannot perform an IvedaAI
+MFA challenge or federated SSO flow; accounts requiring unsupported authentication remain blocked.
+Do not disable their protections to make the connector work. Application account setup and required
+first-login password changes must be completed in IvedaAI. Upstream password/account changes are
+checked on refresh and on subsequent upstream logins; discovery may remain available until local
+revocation or expiry. Each customer's operator must establish its production access-revocation policy.
+
+## Optional external identity provider
+
+The alternative JWT mode can use an existing OAuth/OIDC authorization server. In that mode the
+package acts only as the MCP resource server and does not issue tokens. Configure
 the identity provider's authorization-code flow with PKCE and discovery for the selected client.
 See [OpenAI authentication requirements](https://developers.openai.com/plugins/build/auth).
 
@@ -43,8 +96,9 @@ does not invalidate its JWT. Production rollout must establish the required revo
 
 ## Configuration and startup
 
-Build with `npm ci` and `npm run build`. Create a protected JSON file **outside the repository**,
-using this shape and actual values supplied by the installation and identity-provider operators:
+Build with `npm ci` and `npm run build`. Use the native IvedaAI configuration above, or this
+alternative JWT configuration with values supplied by the identity-provider operator. Keep either
+file **outside the repository**:
 
 ```json
 {
@@ -75,7 +129,9 @@ node /absolute/path/to/dist/http.js /protected/path/customer.json
 ```
 
 The listener binds **only to 127.0.0.1**. Place a trusted HTTPS reverse proxy on the same host,
-forwarding `/mcp` and `/.well-known/oauth-protected-resource` to the configured port. Preserve the
+forwarding `/mcp` and `/.well-known/oauth-protected-resource` to the configured port. For native
+IvedaAI login also forward `/authorize`, `/login`, `/token`, `/revoke`,
+`/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource/mcp`. Preserve the
 canonical public Host header or use the loopback host/port. Forward Authorization without logging
 it. The service does not trust forwarded identity, customer-route or upstream-URL headers.
 Configure the proxy's own connection/rate limits and trusted certificates; no proxy, DNS record
@@ -111,8 +167,12 @@ two application accounts and a real SDK HTTP client. They check discovery, issue
 signature/scope validation, account mapping, camera denials, write refusal, invalid host/origin,
 duplicate authorization headers, body limits and absence of session authority.
 
-Before a customer pilot, configure and verify the real identity provider's metadata, consent and
-token claims; verify TLS through the actual proxy; test linking and representative reads in the
+Native-login tests additionally cover form binding/consent, failed passwords, PKCE, client/resource/
+callback binding, code replay/expiry, token rotation/reuse, revocation and login-attempt limits.
+Existing IvedaAI credentials also passed a controlled live login/read/refresh/revoke sequence.
+
+Before a customer pilot, configure the approved AI client and callback, verify the chosen account
+login flow and TLS through the actual proxy, and test linking and representative reads in the
 target browser AI app; confirm revocation and user permissions; and measure upstream login and
 concurrency behavior. No production-readiness or browser-client compatibility claim follows from
-the local mock tests. For a private ChatGPT stdio tunnel pilot, see [CUSTOMER-PILOT.md](CUSTOMER-PILOT.md).
+local mock tests or the loopback live test. For a private ChatGPT stdio tunnel pilot, see [CUSTOMER-PILOT.md](CUSTOMER-PILOT.md).

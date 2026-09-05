@@ -6,14 +6,16 @@ Intended customers use ChatGPT or another AI app in a browser.
 Each customer has their own IvedaAI server; there is no shared upstream installation.
 Network access varies by customer: some installations are internet-accessible and others require
 a private network or VPN. Both deployment paths must be supported in the product design.
+Customers will use their existing IvedaAI login; a separate sign-in vendor is not required.
 
 ## What exists
 
 `src/index.ts` retains the stdio connection. Reusable tool registration in `src/server.ts` receives
-an explicit account/policy context. `src/http.ts` adds a loopback HTTP listener with JWT validation,
-OAuth resource metadata and operator-configured subject/account mappings. It uses a fixed customer
-origin and fresh request contexts, with read-only access and uploads disabled. No identity provider,
-HTTPS proxy, tenant relay or production endpoint has been provisioned. `IVEDAAI_BASE_URL` addresses
+an explicit account/policy context. `src/http.ts` adds a loopback HTTP listener. The IvedaAI login
+adapter supplies a code/PKCE flow, consent, expiring connector tokens, refresh and revocation.
+Optional external JWT validation and subject/account mappings are also available. It uses a fixed
+customer origin and fresh request contexts, with read-only access and uploads disabled. No HTTPS
+proxy, tenant relay or production endpoint has been provisioned. `IVEDAAI_BASE_URL` addresses
 IvedaAI; it cannot be pasted into ChatGPT as this package's MCP endpoint.
 
 ## Connection options
@@ -26,7 +28,7 @@ See [OpenAI connection and testing documentation](https://developers.openai.com/
 | Route | Proposed use here | Remaining work |
 | --- | --- | --- |
 | Private ChatGPT tunnel | An isolated pilot can reuse the current stdio executable. | Provision a tunnel and supervised runtime, restrict workspace access, use a dedicated restricted application account, and test actual ChatGPT calls. |
-| HTTPS MCP service | Customer launch across compatible AI clients. | Local HTTP/JWT/account-isolation preview exists. Configure identity-provider/proxy integration, verify revocation/load, and validate each target client. |
+| HTTPS MCP service | Customer launch across compatible AI clients. | HTTP and existing-IvedaAI login preview exists. Configure proxy/client callbacks, verify production revocation/load, and validate each target client. |
 
 A tunnel requires a tunnel ID, runtime key and a machine that can reach the MCP process. It uses
 outbound HTTPS, and the target workspace must be associated with it. It is an OpenAI connection
@@ -54,7 +56,7 @@ an internet-accessible IvedaAI web interface does not itself provide a remote MC
 
 | Customer network | Connection design | Status |
 | --- | --- | --- |
-| Inbound HTTPS to MCP is permitted | Authenticated Streamable HTTP endpoint on a customer-approved host; its upstream origin is fixed to that customer's IvedaAI server. | HTTP/JWT boundary tested locally; real identity-provider, proxy and browser validation remain. |
+| Inbound HTTPS to MCP is permitted | Authenticated Streamable HTTP endpoint on a customer-approved host; its upstream origin is fixed to that customer's IvedaAI server. | HTTP and existing-IvedaAI login tested locally, including live login/read/refresh/revoke; proxy and browser validation remain. |
 | Private network/VPN, ChatGPT pilot | Customer-local stdio process reached through its dedicated outbound OpenAI tunnel. | Existing MCP code can be reused; tunnel provisioning and browser checks remain. |
 | Private network/VPN, other browser clients | Customer-approved remote access or an authenticated outbound relay connecting to a compatible HTTPS MCP endpoint. | Relay/access product and client support are not selected or validated. Do not advertise this path as ready. |
 
@@ -81,9 +83,10 @@ role accepted for the pilot. Revoking a user must invalidate that user's connect
 
 ## Proposed hosted service
 
-The following are project design requirements. The initial implementation covers explicit contexts,
-stateless HTTP, JWT validation and fixed subject/account mappings in read-only mode. It does not
-complete the deployment, operational or identity-provider integration requirements below.
+The following are project design requirements. The preview implements explicit contexts, stateless
+HTTP and existing-IvedaAI login with code/PKCE, consent, refresh and revocation in read-only mode.
+Optional external JWT validation and fixed subject/account mappings remain available. Deployment
+and operational requirements still need acceptance checks on the customer's actual connection.
 
 1. Separate reusable tool registration from CLI startup. Construct the server with an explicit
    request/account context; keep the existing stdio entry point working.
@@ -105,11 +108,13 @@ complete the deployment, operational or identity-provider integration requiremen
 7. Record redacted audit events with customer/user, operation, outcome and correlation ID.
    Establish service health, rate limits, restart behavior and rollback before enabling customers.
 
-For authenticated OpenAI MCP connections, use an established OAuth 2.1 identity provider with
-discovery and an authorization-code/PKCE flow supported by the target client. The MCP resource
-server must verify tokens, issuer, audience, expiry and scopes on requests. Publish protected
-resource metadata and appropriate authentication challenges. The existing upstream password
-grant does not implement this incoming authorization flow.
+Authenticated OpenAI MCP connections require a compatible incoming OAuth flow with discovery and
+authorization-code/PKCE support. The new adapter supplies that flow and binds separate opaque MCP
+tokens to the customer endpoint and the consenting IvedaAI account. It validates credentials using
+the existing upstream login API; the AI client never receives that password. No separate identity
+provider is required in this mode. Token lifetime, revocation and memory-storage limits are described
+in [REMOTE.md](REMOTE.md). The alternative external-provider mode verifies JWT issuer, audience,
+expiry and scopes. Both modes publish resource metadata and authentication challenges.
 See [OpenAI authentication documentation](https://developers.openai.com/plugins/build/auth).
 
 ## Deployment decisions still needed
@@ -117,7 +122,7 @@ See [OpenAI authentication documentation](https://developers.openai.com/plugins/
 - Confirmed: every customer has a separate IvedaAI installation.
 - Confirmed: internet versus private-network/VPN access varies by customer.
 - Where the MCP runtime can reach those installations and who operates it.
-- Which customer sign-in system and upstream account mapping the service will use.
+- Confirmed: use existing IvedaAI login; configure approved AI clients and their exact callbacks.
 - Whether the first release is a private pilot or a publicly distributed integration.
 
 These decisions determine routing and account isolation. No host, domain, identity provider,
@@ -128,12 +133,13 @@ tunnel, customer credential store or production endpoint has been created by thi
 | Check | Required evidence |
 | --- | --- |
 | Actual browser client | Discovery and representative read calls from the chosen ChatGPT workspace; repeat in each additionally advertised client. |
-| Sign-in | Successful linking plus rejection of missing, expired, wrong-issuer and wrong-audience credentials; disconnect/revocation works. |
+| Sign-in | Successful linking plus rejection of missing/expired tokens, wrong client/resource, invalid PKCE and replay; disconnect/revocation works. For external JWT mode also verify issuer, audience and signature rejection. |
 | Isolation | Two customers with overlapping camera IDs and two differently privileged users; forged customer routes, session reuse, concurrent calls and token refresh cannot cross boundaries. |
 | Authority | Allowed camera read succeeds; denied camera and administrative/write calls fail at the server/application boundary. |
 | Network | Trusted TLS on the selected path; approved reachability to IvedaAI; no client-controlled origin selection. |
 | Reliability | Reconnect, cancellation, process restart and bounded load; no continuing privileged session after access is revoked. |
 | Media, if enabled | Only owned staged files are usable; expired or another customer's files are rejected. |
 
-The existing application integration checks establish useful API behavior. They do not establish
-any of these remote connection or multi-customer guarantees.
+The automated remote tests provide local evidence for authorization, isolation and request limits.
+The live loopback test also validates IvedaAI login, an allowed read, refresh and revocation. These
+checks do not establish production TLS, deployment behavior or actual browser-client compatibility.
