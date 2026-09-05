@@ -899,7 +899,7 @@ describe("MCP server over stdio", () => {
    * literal back into a registration.
    */
   it("registers the hand-written tools from the measured constants, not inline text", () => {
-    const source = readFileSync(SERVER_ENTRY, "utf8");
+    const source = readFileSync(new URL("../src/server.ts", import.meta.url), "utf8");
     for (const constant of ["GET_SCHEMA_DESCRIPTION", "ALERT_INTEGRATION_DESCRIPTION", "ADD_CAMERA_DESCRIPTION"]) {
       expect(source, constant).toContain(`description: ${constant},`);
     }

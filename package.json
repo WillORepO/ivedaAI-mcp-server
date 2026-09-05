@@ -1,7 +1,7 @@
 {
   "name": "ivedaai-mcp-server",
   "version": "1.0.0",
-  "description": "MCP server for the IvedaAI video analytics API \u2014 cameras, alerts, analysis jobs, face and licence-plate watchlists",
+  "description": "MCP server for the IvedaAI video analytics API — cameras, alerts, analysis jobs, face and licence-plate watchlists",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "jose": "6.2.4",
     "undici": "^7.29.0",
     "zod": "^3.24.1"
   },

@@ -1,17 +1,20 @@
 # Browser connection readiness
 
-Status reviewed 2026-09-04 (America/Phoenix): **design requirements, not an implemented or deployed
-remote service**. Intended customers use ChatGPT or another AI app in a browser.
+Status reviewed 2026-09-04 (America/Phoenix): an **authenticated HTTP preview is implemented and
+locally tested, but not deployed or verified with a customer browser client**. See [REMOTE.md](REMOTE.md).
+Intended customers use ChatGPT or another AI app in a browser.
 Each customer has their own IvedaAI server; there is no shared upstream installation.
 Network access varies by customer: some installations are internet-accessible and others require
 a private network or VPN. Both deployment paths must be supported in the product design.
 
 ## What exists
 
-`src/index.ts` connects an MCP server to `StdioServerTransport`. Each process has one configured
-IvedaAI origin, application account, token manager, access policy and upload root. There is no
-inbound HTTP listener, remote-user authentication or tenant/session registry. `IVEDAAI_BASE_URL`
-addresses IvedaAI; it cannot be pasted into ChatGPT as this package's MCP endpoint.
+`src/index.ts` retains the stdio connection. Reusable tool registration in `src/server.ts` receives
+an explicit account/policy context. `src/http.ts` adds a loopback HTTP listener with JWT validation,
+OAuth resource metadata and operator-configured subject/account mappings. It uses a fixed customer
+origin and fresh request contexts, with read-only access and uploads disabled. No identity provider,
+HTTPS proxy, tenant relay or production endpoint has been provisioned. `IVEDAAI_BASE_URL` addresses
+IvedaAI; it cannot be pasted into ChatGPT as this package's MCP endpoint.
 
 ## Connection options
 
@@ -23,7 +26,7 @@ See [OpenAI connection and testing documentation](https://developers.openai.com/
 | Route | Proposed use here | Remaining work |
 | --- | --- | --- |
 | Private ChatGPT tunnel | An isolated pilot can reuse the current stdio executable. | Provision a tunnel and supervised runtime, restrict workspace access, use a dedicated restricted application account, and test actual ChatGPT calls. |
-| HTTPS MCP service | Customer launch across compatible AI clients. | Implement Streamable HTTP, user authentication, application-account mapping, isolation, operations controls and deployment. Validate each target client. |
+| HTTPS MCP service | Customer launch across compatible AI clients. | Local HTTP/JWT/account-isolation preview exists. Configure identity-provider/proxy integration, verify revocation/load, and validate each target client. |
 
 A tunnel requires a tunnel ID, runtime key and a machine that can reach the MCP process. It uses
 outbound HTTPS, and the target workspace must be associated with it. It is an OpenAI connection
@@ -51,7 +54,7 @@ an internet-accessible IvedaAI web interface does not itself provide a remote MC
 
 | Customer network | Connection design | Status |
 | --- | --- | --- |
-| Inbound HTTPS to MCP is permitted | Authenticated Streamable HTTP endpoint on a customer-approved host; its upstream origin is fixed to that customer's IvedaAI server. | Transport and incoming authorization must be implemented and tested. |
+| Inbound HTTPS to MCP is permitted | Authenticated Streamable HTTP endpoint on a customer-approved host; its upstream origin is fixed to that customer's IvedaAI server. | HTTP/JWT boundary tested locally; real identity-provider, proxy and browser validation remain. |
 | Private network/VPN, ChatGPT pilot | Customer-local stdio process reached through its dedicated outbound OpenAI tunnel. | Existing MCP code can be reused; tunnel provisioning and browser checks remain. |
 | Private network/VPN, other browser clients | Customer-approved remote access or an authenticated outbound relay connecting to a compatible HTTPS MCP endpoint. | Relay/access product and client support are not selected or validated. Do not advertise this path as ready. |
 
@@ -78,7 +81,9 @@ role accepted for the pilot. Revoking a user must invalidate that user's connect
 
 ## Proposed hosted service
 
-The following are project design requirements, not features already provided by the package.
+The following are project design requirements. The initial implementation covers explicit contexts,
+stateless HTTP, JWT validation and fixed subject/account mappings in read-only mode. It does not
+complete the deployment, operational or identity-provider integration requirements below.
 
 1. Separate reusable tool registration from CLI startup. Construct the server with an explicit
    request/account context; keep the existing stdio entry point working.
