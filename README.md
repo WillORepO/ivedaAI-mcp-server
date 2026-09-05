@@ -2,10 +2,16 @@
 
 [![CI](https://github.com/WillORepO/ivedaAI-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/WillORepO/ivedaAI-mcp-server/actions/workflows/ci.yml)
 
-An MCP server for the **IvedaAI** video analytics API. Point an MCP client — Claude Desktop, Claude
-Code, or anything else that speaks the protocol — at your IvedaAI deployment and drive it in natural
+An MCP server for the **IvedaAI** video analytics API. Point a client that launches local MCP
+processes, such as Claude Desktop or Claude Code, at your IvedaAI deployment and drive it in natural
 language: search footage, manage cameras and alert rules, run analysis jobs, work with face and
 licence-plate watchlists.
+
+**Transport:** this package currently uses stdio only. It does not expose an HTTPS MCP endpoint
+or authenticate incoming remote users. Browser connections require additional infrastructure;
+see the [browser connection requirements](docs/BROWSER-READINESS.md) for the hosted service and
+private ChatGPT pilot options. `IVEDAAI_BASE_URL` is the upstream application's address, not an
+MCP connection URL.
 
 The bundled API defines 316 operations. By default, 295 are exposed through 63 resource tools,
 plus three helper tools; 21 collection-wide DELETEs are withheld. See [why](docs/DESIGN.md#design).

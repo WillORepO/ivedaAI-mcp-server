@@ -427,14 +427,15 @@ verbs on this path behave completely differently, and neither the way REST would
 > update that alters nothing has demonstrated only that the body was rejected, so the script now
 > reports non-2xx separately and says explicitly that it learned nothing about merge semantics.
 
-What remains genuinely unreadable on an alert rule is nine type-specific binding lists —
+The follow-up recovered `abnormalTypes` from the condition JSON and camera IDs from valid
+`alertRulePermissions` entries. Eight type-specific binding lists still have no verified source —
 `roiTypes`, `lprTypes`, `personTypes`, `lineIds`, `faceCategoryIds`, `lprCategoryIds`,
-`abnormalTypes`, `idrAccess`, `countingRule`. Since `PATCH` merges, leaving them out of an update is
+`idrAccess`, `countingRule`. Since `PATCH` merges, leaving them out of an update is
 safe; they matter only for `PUT`, which needs the full object anyway.
 
-`ivedaai_alert_integration`'s `apply` still reads the rule first and re-sends up to twelve fields — `name`
+`ivedaai_alert_integration`'s `apply` reads the rule first and re-sends recoverable fields — `name`
 (from `alertName`), `alertType`, `description`, `isEnabled`, `weekdays`/`enableForever` from
-`schedule`, and `roiIds`/`cameraIds`/`hashtags`/`typeLogic`/`cooldownInterval` parsed out of the
+`schedule`, and `abnormalTypes`/`roiIds`/`cameraIds`/`hashtags`/`typeLogic`/`cooldownInterval` parsed out of the
 `condition` string (which of those it finds depends on the rule's type). That is now
 precaution rather than repair: it keeps the call schema-valid (the original bare `{trigger}` body
 omitted two required fields) and stays correct if the endpoint ever changes. It refuses to write if

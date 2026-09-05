@@ -5,7 +5,7 @@ For the complete list of every tool and operation, see [TOOLS.md](TOOLS.md).
 
 ## What this server does
 
-It connects an AI assistant (Claude Desktop, Claude Code, or any MCP client) to an IvedaAI
+It connects an AI assistant through a client that launches local MCP processes to an IvedaAI
 video-analytics deployment, so you can ask things in plain language and have the assistant drive
 the API for you:
 
@@ -16,6 +16,9 @@ the API for you:
 - *"Analyze this video file for objects"* (uploads a file and creates a job)
 
 ## Connecting
+
+These instructions use the package's stdio transport. It has no HTTP listener or remote-user
+sign-in. For ChatGPT and other browser apps, see [browser connection requirements](BROWSER-READINESS.md).
 
 ### Prepare the application account
 
@@ -174,40 +177,49 @@ section in the [README](../README.md) or [TOOLS.md](TOOLS.md#ivedaai_alert_integ
    PATCHes the trigger onto an existing alert rule found via `ivedaai_alert_rule` → `GET /api/alertRules`.
 5. Check the `preservation` block in the result. `apply` reads the rule first and re-sends
    everything it can reach — including `roiIds`, `cameraIds`, `hashtags`, `typeLogic` and
-   `cooldownInterval`, which it digs out of the `condition` JSON string (which of those a given rule
-   stores there depends on its `alertType`), and `enableForever`, stored as `schedule.forever`. Nine
+   `cooldownInterval` and `abnormalTypes`, which it digs out of the `condition` JSON string (which of
+   those a given rule stores there depends on its `alertType`), and `enableForever`, stored as
+   `schedule.forever`. Camera targets can also be recovered from `alertRulePermissions[].cameraId`
+   when every entry contains a valid ID. `CAMERA_ABNORMAL` updates require a recoverable `cameraIds`
+   array; the helper refuses to guess missing targets. Eight other
    type-specific binding lists (`roiTypes`, `lprTypes`, `lineIds`, `lprCategoryIds`, `countingRule`, …)
    have no known source in any read, so nothing can carry them through — but `PATCH
    /api/alertRules` has been live-tested and **merges**, so leaving them out does not reset them. See
    [the design notes](DESIGN.md#fields-you-cannot-simply-read-back) for why this API's reads and writes
    disagree about field names in the first place.
+6. Verify an actual event after applying the trigger: use an authorized isolated rule/camera,
+   enable the rule, cause its intended event, and correlate the application's alert with the
+   receiver's request log. The connection-test action alone does not prove event delivery.
+   An isolated camera-connection-failure event passed this sequence on the tested deployment.
+   Disable and remove owned fixtures afterward. RAW request bodies use
+   `{content: "<payload text>", contentType: "application/json"}`, not a bare string.
 
 ### Analyze a video file (upload job)
 
-> **Two requirements earlier versions of this guide omitted**, both confirmed by live testing
-> (verified end to end against a live deployment):
->
-> - **A pseudo camera.** The job attaches to a container record with no stream. Without a `cameraId`
->   the call returns `200` with an empty body and silently does nothing; with a *real* camera's id it
->   returns `400 "Please provide a valid pseudo camera id."`
-> - **`startTime` and `endTime`.** The spec marks both optional; omit them and you get a bare
->   `500 NullPointerException`. Format is `yyyy-MM-dd HH:mm:ss` — ISO 8601 gives
->   `400 ParseException: Unparseable date`.
+Use the current `POST /api/jobs/upload` endpoint with an explicit ISO timestamp and UTC offset.
+A 12-second synthetic upload completed with the correct persisted timestamp and duration on the
+tested deployment. Choose a profile and enabled plugins appropriate for the intended analytics.
 
 1. `ivedaai_camera` → `POST /api/cameras/pseudo` with `body: { name: "incident-upload" }` — creates
    the pseudo camera the job attaches to. Only `name` is required; keep the returned `cameraId`.
 2. `ivedaai_engine_profile` → `GET /api/engineProfiles` — find an engine profile id.
-3. `ivedaai_job` → `POST /api/jobs` with
-   `query: { type: "UploadJob", cameraId: <pseudo camera id>, engineProfileId: …,
-   startTime: "2026-07-28 15:09:00", endTime: "2026-07-28 15:17:45" }` and
+3. `ivedaai_job` → `POST /api/jobs/upload` with
+   `body: { cameraId: <pseudo camera id>, engineProfileId: <chosen profile id>,
+   startTime: "2026-09-04T12:34:56+08:00", usrFileName: "incident.mp4",
+   plugins: ["VideoSearch"], doTranscode: false }` and
    `file: { path: "C:\\clips\\incident.mp4" }`.
 
-   Success looks like `{"success": true, "message": "Job created : 1758"}` — **the job id is only in
-   that message string**, not in any field, so you have to read it out of the prose.
-4. `ivedaai_job` → `GET /api/jobs` with `query: { types: "UploadJob" }` — poll until processing
-   finishes (`status: "Completed"`, `progress: 100`).
-5. `ivedaai_event` / `ivedaai_scene` — query what was detected. `GET /api/scenes` also requires
-   `start`/`end` in the same `yyyy-MM-dd HH:mm:ss` format.
+   The current endpoint returns structured `jobId` and `footageId` fields in the response body.
+4. `ivedaai_job` → `GET /api/jobs/{jobId}` — poll the returned ID until processing completes
+   (`status: "Completed"`, `progress: 100`) or reaches a failure/cancellation state.
+5. `ivedaai_footage` → `GET /api/footages/{footageId}` — verify persisted start/end times and duration.
+6. `ivedaai_event` / `ivedaai_scene` — query detected output with footage/camera and time filters.
+   Check each endpoint's parameter format; upload timestamp syntax is not universal.
+
+The deprecated `POST /api/jobs` endpoint uses `yyyyMMddHHmmss` in deployment-local time for
+`startTime`/`endTime` (for example, `20260904130000`). Spaced timestamps were accepted but silently
+misdated by the application during live validation; the MCP now rejects them. Do not use the old
+spaced-format upload example from earlier versions of this guide.
 
 For a live camera instead of a file: `POST /api/jobs` with `query: { type: "StreamJob", cameraId: … }`
 and no file.
@@ -228,7 +240,13 @@ and no file.
 
 ### License plates
 
+- `ivedaai_detection` → `POST /api/detection/plates` with `query: { profileId: <validated profile id> }`
+  and an image `file` — select a profile verified for that deployment's plate format. Default
+  selection and one tested profile missed a positive fixture that another explicit profile read
+  correctly. Profile IDs are deployment-specific; validate both a known plate and a no-plate control.
 - `ivedaai_license_plate` → `GET /api/lpr/plates` — detection history with plate filters.
+  A partial-character filter can include OCR variants; verify exact normalized values before
+  reporting an exact-match count. Detection history and the target watchlist are separate records.
 - `ivedaai_license_plate_target` / `ivedaai_license_plate_category` — manage plate watchlists;
   bulk import supports a CSV upload via `file`.
 
