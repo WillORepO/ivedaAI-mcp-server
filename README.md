@@ -140,15 +140,20 @@ than every tool description carrying it.
 
 ## Requirements
 
-Node 22.12.0 or newer, and an IvedaAI 10.0 deployment. Use the latest patched Node 22 or 24 LTS
+Node 22.16.0+ in the 22.x line, or Node 24+, and an IvedaAI 10.0 deployment. Use the latest patched Node 22 or 24 LTS
 release in production; Node 20 is no longer supported. The bundled API document is 10.0; point
 `IVEDAAI_SWAGGER_PATH` at your own if you run something else.
 
+Earlier Node 22 versions and Node 23 are unsupported because request deadlines depend on the
+`AbortSignal.any()` timeout fix included in [Node 22.16.0](https://nodejs.org/en/blog/release/v22.16.0).
+CI covers the minimum supported Node 22 version and Node 24.
+
 ## Production operation
 
-Each MCP client starts its own process and communicates over stdin/stdout. There is no HTTP
-listener, database, container, or separate health endpoint. Successful MCP initialization and a
-small authorized read provide the startup and integration checks.
+For stdio, each MCP client starts its own process and communicates over stdin/stdout; that entry
+point has no HTTP listener. The separate [HTTP preview](docs/REMOTE.md) uses existing IvedaAI login
+behind an operator-managed HTTPS proxy. Neither mode provisions a database, container or separate
+health endpoint. Successful MCP initialization and a small authorized read provide integration checks.
 
 Use HTTPS with a valid certificate, a dedicated IvedaAI account with only the required application
 permissions, and read-only mode for monitoring. The server adds read-only, collection-delete,
