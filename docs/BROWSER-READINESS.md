@@ -2,6 +2,9 @@
 
 Status reviewed 2026-09-04 (America/Phoenix): **design requirements, not an implemented or deployed
 remote service**. Intended customers use ChatGPT or another AI app in a browser.
+Each customer has their own IvedaAI server; there is no shared upstream installation.
+Network access varies by customer: some installations are internet-accessible and others require
+a private network or VPN. Both deployment paths must be supported in the product design.
 
 ## What exists
 
@@ -29,6 +32,49 @@ See [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp
 
 The tunnel does not add per-user IvedaAI identity to this stdio process. Every user allowed to
 invoke a process receives that process's application authority. Scope a pilot accordingly.
+
+## Separate customer installations
+
+The proposed baseline is one isolated connector runtime for each customer installation, placed
+on the IvedaAI host or another managed host that can reach it. This is a design choice based on
+the confirmed separate-server topology, not evidence that a connector has been installed.
+
+```text
+Customer A's authorized AI users -> A's connection -> A's MCP runtime -> A's IvedaAI server
+Customer B's authorized AI users -> B's connection -> B's MCP runtime -> B's IvedaAI server
+```
+
+Each runtime has a fixed upstream origin and separate credentials, token cache, service identity
+and configuration. Provision connection access only for the intended customer. Different URLs
+or tunnel names alone are not authorization boundaries. Select the network path per installation:
+an internet-accessible IvedaAI web interface does not itself provide a remote MCP endpoint.
+
+| Customer network | Connection design | Status |
+| --- | --- | --- |
+| Inbound HTTPS to MCP is permitted | Authenticated Streamable HTTP endpoint on a customer-approved host; its upstream origin is fixed to that customer's IvedaAI server. | Transport and incoming authorization must be implemented and tested. |
+| Private network/VPN, ChatGPT pilot | Customer-local stdio process reached through its dedicated outbound OpenAI tunnel. | Existing MCP code can be reused; tunnel provisioning and browser checks remain. |
+| Private network/VPN, other browser clients | Customer-approved remote access or an authenticated outbound relay connecting to a compatible HTTPS MCP endpoint. | Relay/access product and client support are not selected or validated. Do not advertise this path as ready. |
+
+An internet-accessible IvedaAI installation does not automatically authorize exposing MCP.
+Where inbound access is prohibited, keep that boundary and use the approved outbound route.
+For a future relay, bind its installation credential to one provisioned customer and upstream,
+authenticate both ends, and reject route/session substitution before forwarding any tool call.
+
+For a private ChatGPT pilot, use a dedicated tunnel restricted to the pilot customer's workspace
+and one restricted IvedaAI account. All pilot users must be authorized for that account's complete
+read surface. This avoids claiming per-user application permissions that stdio does not implement.
+See the [customer pilot runbook](CUSTOMER-PILOT.md) for inputs, checks and teardown.
+
+For browser clients requiring HTTPS, use an authenticated customer-specific MCP service with the
+same fixed upstream boundary. If a shared Iveda-operated gateway is introduced later, it must
+authenticate users before resolving a provisioned customer route and bind the route to a verified
+connector identity. A customer ID, server URL or camera ID supplied by the model cannot select a
+different customer's connection. Any relay for private networks needs separate implementation
+and review; OpenAI's tunnel is not assumed to work with other AI vendors.
+
+Separate customer processes do not solve differing permissions among users of one customer.
+Those users still need individual application-account mapping, or an explicitly shared restricted
+role accepted for the pilot. Revoking a user must invalidate that user's connection/session access.
 
 ## Proposed hosted service
 
@@ -63,7 +109,8 @@ See [OpenAI authentication documentation](https://developers.openai.com/plugins/
 
 ## Deployment decisions still needed
 
-- Whether customers share a company-hosted IvedaAI service, use separate installations, or both.
+- Confirmed: every customer has a separate IvedaAI installation.
+- Confirmed: internet versus private-network/VPN access varies by customer.
 - Where the MCP runtime can reach those installations and who operates it.
 - Which customer sign-in system and upstream account mapping the service will use.
 - Whether the first release is a private pilot or a publicly distributed integration.
@@ -77,7 +124,7 @@ tunnel, customer credential store or production endpoint has been created by thi
 | --- | --- |
 | Actual browser client | Discovery and representative read calls from the chosen ChatGPT workspace; repeat in each additionally advertised client. |
 | Sign-in | Successful linking plus rejection of missing, expired, wrong-issuer and wrong-audience credentials; disconnect/revocation works. |
-| Isolation | Two customers and two differently privileged users; IDs, session reuse, concurrent calls and token refresh cannot cross boundaries. |
+| Isolation | Two customers with overlapping camera IDs and two differently privileged users; forged customer routes, session reuse, concurrent calls and token refresh cannot cross boundaries. |
 | Authority | Allowed camera read succeeds; denied camera and administrative/write calls fail at the server/application boundary. |
 | Network | Trusted TLS on the selected path; approved reachability to IvedaAI; no client-controlled origin selection. |
 | Reliability | Reconnect, cancellation, process restart and bounded load; no continuing privileged session after access is revoked. |
