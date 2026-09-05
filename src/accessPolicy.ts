@@ -71,6 +71,11 @@ export interface AccessPolicy {
 }
 
 export function policyFromEnv(env: NodeJS.ProcessEnv = process.env): AccessPolicy {
+  for (const name of ["IVEDAAI_READ_ONLY", "IVEDAAI_ALLOW_COLLECTION_DELETE"]) {
+    if (env[name] !== undefined && env[name] !== "true" && env[name] !== "false") {
+      throw new Error(`${name} must be exactly "true" or "false" when set.`);
+    }
+  }
   return {
     readOnly: env.IVEDAAI_READ_ONLY === "true",
     allowCollectionDelete: env.IVEDAAI_ALLOW_COLLECTION_DELETE === "true",

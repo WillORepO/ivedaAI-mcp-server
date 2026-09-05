@@ -129,7 +129,7 @@ export const CAPABILITY_NOTES: Record<string, string> = {
     "carrying just that is refused with a 400 naming the other four and no record created. Creating the " +
     "record does not start the camera either; it stays Idle until activated. For onboarding a real camera " +
     "prefer the ivedaai_add_camera tool, which supplies these and the other defaults, activates the camera, " +
-    "and cleans up after a partial create.",
+    "and reports uncertain partial creation for inspection before retrying.",
 
   "GET /api/alerts":
     "NOTE: on an active deployment this collection is very large — hundreds of thousands of records over a "
@@ -157,6 +157,11 @@ export const CAPABILITY_NOTES: Record<string, string> = {
     'status is "Idle" before calling this DELETE. Deletion is asynchronous too: poll that GET until it answers ' +
     "404 Not Found rather than trusting the 202 — it is 202 Accepted, not 204, so it promises nothing about " +
     "having happened.",
+
+  "POST /api/jobs":
+    "NOTE: this legacy endpoint is deprecated. For uploads prefer POST /api/jobs/upload, which returns structured jobId/footageId " +
+    "and accepts an ISO timestamp with offset. Here startTime/endTime require yyyyMMddHHmmss in deployment-local time; " +
+    "spaced dates were observed to silently store an unrelated date despite a completed job. Invalid timestamp formats are rejected locally.",
 
   "PUT /api/jobs":
     "NOTE: this takes no job id and no camera filter — see the operation list for POST /api/jobs/{cameraId}, " +

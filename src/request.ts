@@ -69,6 +69,12 @@ function isScalar(value: unknown): boolean {
   return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
 }
 
+function isMissing(value: unknown): boolean {
+  return value === undefined || value === null ||
+    (typeof value === "string" && value.trim() === "") ||
+    (Array.isArray(value) && (value.length === 0 || value.some(isMissing)));
+}
+
 function encodeQueryValue(param: ParamDef, value: unknown, search: URLSearchParams): void {
   if (value === undefined || value === null) return;
   if (Array.isArray(value)) {
@@ -96,6 +102,17 @@ function encodeQueryValue(param: ParamDef, value: unknown, search: URLSearchPara
   search.append(param.name, String(value));
 }
 
+function isCompactTimestamp(value: unknown): boolean {
+  if (typeof value !== "string" || !/^\d{14}$/.test(value)) return false;
+  const year = Number(value.slice(0, 4)), month = Number(value.slice(4, 6)), day = Number(value.slice(6, 8));
+  const hour = Number(value.slice(8, 10)), minute = Number(value.slice(10, 12)), second = Number(value.slice(12, 14));
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(hour, minute, second, 0);
+  return year > 0 && date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day && date.getUTCHours() === hour && date.getUTCMinutes() === minute && date.getUTCSeconds() === second;
+}
+
 export function validateArgs(operation: Operation, args: OperationArgs): string[] {
   const problems: string[] = [];
 
@@ -103,13 +120,26 @@ export function validateArgs(operation: Operation, args: OperationArgs): string[
   const queryParams = paramsIn(operation, "query");
 
   for (const p of pathParams) {
-    if (p.required && (args.path?.[p.name] === undefined || args.path?.[p.name] === null)) {
+    if (p.required && isMissing(args.path?.[p.name])) {
       problems.push(`Missing required path parameter "${p.name}".`);
     }
   }
   for (const p of queryParams) {
-    if (p.required && (args.query?.[p.name] === undefined || args.query?.[p.name] === null)) {
+    if (p.required && isMissing(args.query?.[p.name])) {
       problems.push(`Missing required query parameter "${p.name}".`);
+    }
+  }
+
+  // This deprecated endpoint parses the wrong format leniently, returning
+  // success with footage filed months away from the requested date. Apply
+  // the guard only when the operation declares the verified compact format.
+  if (operation.id === "POST /api/jobs") {
+    for (const name of ["startTime", "endTime"]) {
+      const value = args.query?.[name];
+      if (value !== undefined && queryParams.some(p => p.name === name && p.description?.includes("yyyyMMddHHmmss")) &&
+          !isCompactTimestamp(value)) {
+        problems.push(`Query parameter "${name}" must be a valid yyyyMMddHHmmss timestamp (14 digits, deployment-local time). The legacy endpoint silently misdates other formats. Prefer POST /api/jobs/upload for uploads with an explicit ISO timestamp and offset.`);
+      }
     }
   }
 
@@ -177,6 +207,11 @@ export function buildUrl(origin: string, basePath: string, operation: Operation,
   for (const p of paramsIn(operation, "path")) {
     const value = args.path?.[p.name];
     if (value !== undefined) {
+      // URL normalisation removes dot segments; an empty id can turn a
+      // record DELETE into a collection DELETE despite the access policy.
+      if (String(value).trim() === "" || value === "." || value === "..") {
+        throw new Error(`Invalid path parameter "${p.name}": provide a non-empty record identifier, not a dot segment.`);
+      }
       path = path.replace(`{${p.name}}`, encodeURIComponent(String(value)));
     }
   }
@@ -294,6 +329,21 @@ interface CappedBody {
   timedOut: boolean;
 }
 
+/** Only complete SSE frames can be safely interpreted after a bounded read. */
+function redactCompleteEvents(text: string): string {
+  const frames = text.split(/\r?\n\r?\n/);
+  frames.pop(); // The final frame is incomplete unless followed by a separator.
+  return frames.map(frame => {
+    const lines = frame.split(/\r?\n/);
+    const data = lines.filter(line => line.startsWith("data:")).map(line => line.slice(5).trimStart()).join("\n");
+    let safe: string;
+    try { safe = JSON.stringify(redactSecrets(JSON.parse(data))); }
+    catch { safe = /^[\s]*[\[{]/.test(data) ? "[Malformed event data withheld]" : String(redactSecrets(data)); }
+    const metadata = lines.filter(line => !line.startsWith("data:")).map(line => String(redactSecrets(line)));
+    return [...metadata, ...safe.split("\n").map(line => `data: ${line}`)].join("\n");
+  }).join("\n\n") || "[No complete events received before the response limit.]";
+}
+
 /**
  * Reads a response body incrementally, stopping at maxBytes or when the abort
  * signal fires. Endpoints like /api/system/events (SSE) and *.mjpeg never end
@@ -313,9 +363,10 @@ async function readBodyCapped(response: Response, maxBytes: number): Promise<Cap
       const { done, value } = await reader.read();
       if (done) break;
       if (value) {
-        chunks.push(value);
-        total += value.byteLength;
-        if (total >= maxBytes) {
+        const remaining = maxBytes - total;
+        chunks.push(value.subarray(0, remaining));
+        total += Math.min(value.byteLength, remaining);
+        if (value.byteLength > remaining) {
           truncated = true;
           await reader.cancel().catch(() => {});
           break;
@@ -519,8 +570,11 @@ export async function executeOperation(
   tokenManager: TokenManager,
   operation: Operation,
   args: OperationArgs,
-  overrideTimeoutMs?: number
+  overrideTimeoutMs?: number,
+  cancellation?: AbortSignal
 ): Promise<OperationResult> {
+  const requestSignal = AbortSignal.any([tokenManager.shutdownSignal, ...(cancellation ? [cancellation] : [])]);
+  requestSignal.throwIfAborted();
   const problems = validateArgs(operation, args);
   if (problems.length > 0) {
     throw new Error(`Invalid arguments for ${operation.id}:\n- ${problems.join("\n- ")}`);
@@ -541,6 +595,7 @@ export async function executeOperation(
   buildRequestBody(operation, args, tokenManager.uploadPolicy, preparedUpload);
 
   const attempt = async (accessToken: string): Promise<Response> => {
+    requestSignal.throwIfAborted();
     const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
       Accept: acceptHeaderFor(operation),
@@ -554,8 +609,10 @@ export async function executeOperation(
         method: operation.method,
         headers,
         body,
+        // Do not forward uploads or credentials to a redirect destination.
+        redirect: "error",
         dispatcher: tokenManager.dispatcher,
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.any([requestSignal, AbortSignal.timeout(timeoutMs)]),
       });
     } catch (err) {
       if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
@@ -570,13 +627,15 @@ export async function executeOperation(
     }
   };
 
-  let response = await attempt(await tokenManager.getAccessToken());
+  const accessToken = await tokenManager.getAccessToken();
+  let response = await attempt(accessToken);
 
   // One forced re-login on 401: the cached token may have been revoked server-side
   // (e.g. restart or session limit) before its scheduled expiry.
   if (response.status === 401) {
     await response.body?.cancel().catch(() => {});
-    tokenManager.invalidateToken();
+    requestSignal.throwIfAborted();
+    tokenManager.invalidateToken(accessToken);
     response = await attempt(await tokenManager.getAccessToken());
   }
 
@@ -590,8 +649,9 @@ export async function executeOperation(
   // truncate every one of them (a camera JPEG is ~45 KB against a 28 KB cap)
   // to save a cost that is not being incurred.
   const wantsImage = tokenManager.inlineImages && isInlineableImage(contentType);
-  const readCap = wantsImage ? Math.max(tokenManager.maxImageBytes, tokenManager.maxResponseBytes) : tokenManager.maxResponseBytes;
+  const readCap = wantsImage ? tokenManager.maxImageBytes : tokenManager.maxResponseBytes;
   const { bytes, truncated, timedOut } = await readBodyCapped(response, readCap);
+  requestSignal.throwIfAborted();
 
   let image: OperationResult["image"];
   let parsedBody: unknown;
@@ -636,12 +696,20 @@ export async function executeOperation(
   } else {
     const text = new TextDecoder().decode(bytes);
     if (truncated || timedOut) {
-      parsedBody = text;
+      // An incomplete JSON string cannot be traversed by field-name
+      // redaction. Returning its prefix leaks any credentials before the cap.
+      parsedBody = tokenManager.redactSecrets
+        ? contentType.toLowerCase().includes("text/event-stream")
+          ? redactCompleteEvents(text)
+          : "[Incomplete response body withheld because it cannot be safely redacted. Narrow the request and retry.]"
+        : text;
     } else {
       try {
         parsedBody = text.length > 0 ? JSON.parse(text) : null;
       } catch {
-        parsedBody = text;
+        parsedBody = tokenManager.redactSecrets && /^[\s]*[\[{]/.test(text)
+          ? "[Malformed JSON body withheld because it cannot be safely redacted.]"
+          : text;
       }
     }
     if (tokenManager.redactSecrets) {
@@ -655,14 +723,14 @@ export async function executeOperation(
   const responseHeaders: Record<string, string> = {};
   response.headers.forEach((value, key) => {
     if (RESPONSE_HEADER_ALLOWLIST.has(key.toLowerCase())) {
-      responseHeaders[key.toLowerCase()] = value;
+      responseHeaders[key.toLowerCase()] = tokenManager.redactSecrets ? String(redactSecrets(value)) : value;
     }
   });
 
   const licenceNote = licenceFailureNote(response.status, parsedBody);
 
   return {
-    url: url.toString(),
+    url: tokenManager.redactSecrets ? String(redactSecrets(url.toString())) : url.toString(),
     method: operation.method,
     status: response.status,
     statusText: response.statusText,
@@ -677,7 +745,7 @@ export async function executeOperation(
       ? {
           note:
             `Response exceeded the ${tokenManager.maxResponseBytes}-byte cap and was cut off, so "body" is ` +
-            `partial text rather than parsed JSON. Narrow the request and try again — reduce "size", add a ` +
+            `${tokenManager.redactSecrets ? 'withheld because incomplete content cannot be safely redacted' : 'partial text rather than parsed JSON'}. Narrow the request and try again — reduce "size", add a ` +
             `filter, or request a single record by id. Raising IVEDAAI_MAX_RESPONSE_BYTES is the last resort, ` +
             `because a larger response may exceed what this client can accept.`,
         }

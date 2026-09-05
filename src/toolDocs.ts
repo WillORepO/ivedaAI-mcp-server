@@ -1,4 +1,5 @@
 import { capabilityNote } from "./capabilityNotes.js";
+import { MULTIPART_BODY_FIELD, MULTIPART_FILE_FIELD } from "./request.js";
 import { describeTriggerTypesCompact } from "./alertTrigger.js";
 import type { Operation, ParamDef, TagGroup } from "./swagger.js";
 import { resolveSchema, type JsonObject, type SchemaNode } from "./swagger.js";
@@ -218,6 +219,12 @@ function describeOperation(
   if (formDataParams.length) {
     lines.push(`  form fields (pass via body): ${formDataParams.map(formatNonBodyParam).join(", ")}`);
   }
+  if (!fileParams.length && MULTIPART_FILE_FIELD[op.id]) {
+    lines.push(`  file: required {path, filename?, contentType?} — upload as "${MULTIPART_FILE_FIELD[op.id]}" (omitted by the API document)`);
+  }
+  if (!bodyParam && MULTIPART_BODY_FIELD[op.id]) {
+    lines.push(`  body: JSON side-payload sent as multipart text field "${MULTIPART_BODY_FIELD[op.id]}"${op.id.includes('/colors') ? '; an array of color-detection regions' : ''}`);
+  }
 
   // What this operation is for, when its summary does not say. Placed above the
   // guards because it answers an earlier question: those two correct a call the
@@ -376,16 +383,16 @@ export const ALERT_INTEGRATION_DESCRIPTION =
         "  apply — attaches the built trigger to an existing alert rule (`alertRuleId`, its UUID). Does not require " +
         "having called 'test' first, but doing so is recommended. It reads the rule first and re-sends everything " +
         "the read exposes alongside the new trigger: name (returned as alertName), alertType, description, " +
-        "isEnabled, plus weekdays/enableForever from `schedule` and roiIds/cameraIds/hashtags/typeLogic/" +
+        "isEnabled, plus weekdays/enableForever from `schedule` and abnormalTypes/roiIds/cameraIds/hashtags/typeLogic/" +
         "cooldownInterval parsed out of the " +
-        "`condition` JSON string. It refuses to write if that read fails or lacks the required fields. This is " +
-        "precaution rather than repair — PATCH /api/alertRules/{alertRuleId} was live-tested and merges, leaving " +
-        "omitted fields alone, so applying a trigger does not wipe the rule. (PUT on the same path is different: " +
+        "`condition` JSON string. Camera targets can also be recovered from alertRulePermissions[].cameraId. " +
+        "It refuses to write if the read fails or lacks needed fields. CAMERA_ABNORMAL updates require the " +
+        "camera target list even though PATCH preserves other omitted fields. (PUT on the same path is different: " +
         "it rejects a partial body with a 500, so send the full object there.)\n\n" +
         "Config shape by category:\n" +
         "  webhook (request): { method, url, headers?, params?, authorization?, httpBody? } — authorization/httpBody " +
         "default to {auth:\"NONE\"}/{type:\"NONE\"} automatically; the server requires them present even when unused, " +
-        "despite the spec marking them optional.\n" +
+        "despite the spec marking them optional. For JSON use httpBody: {type:\"RAW\", raw:{content:\"JSON string\", contentType:\"application/json\"}}.\n" +
         "  vms (13 named platforms): { ip, port, username?, password?, protocol?, severity?, cameraIds?, ... } — see " +
         "ivedaai_get_schema(\"AlertTriggerNvr\") for the full field list.\n" +
         "  mail/immix: { emails: [{mailIds?, subject?, content?}], smtpServer, port }\n" +
@@ -403,8 +410,8 @@ export const ADD_CAMERA_DESCRIPTION =
         "product UI: a separate activation step (allocating a processing resource and starting the stream) is " +
         "required, which this tool performs automatically unless `activate: false` is passed.\n" +
         "  - A creation error can still partially create the camera server-side before failing. This tool checks " +
-        "for that by exact name after any error and reports `created_despite_error` with the real cameraId instead " +
-        "of a false `failed`, so you don't end up with a confusing orphaned duplicate.\n\n" +
+        "for a matching name after an API error and reports the id for inspection. A name match may predate " +
+        "this call, so the result stays failed and activation is not attempted. Inspect before retrying.\n\n" +
         "Only `name` plus either `streamUrl` or `ip` are required per camera — everything else is optional and " +
         "defaulted (engineProfileId defaults to the first engine profile found; roiContour defaults to a " +
         "full-frame rectangle). Providing the exact `streamUrl` is much more reliable than `ip` alone: this tool " +

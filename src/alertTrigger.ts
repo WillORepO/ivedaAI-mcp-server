@@ -83,7 +83,7 @@ export interface WebhookConfig {
   headers?: Record<string, string>;
   params?: Record<string, string>;
   authorization?: { auth: "NONE" | "BASIC" | "DIGEST"; account?: string; password?: string };
-  httpBody?: { type: "NONE" | "RAW" | "FORMDATA"; raw?: unknown; formData?: Record<string, string> };
+  httpBody?: { type: "NONE" | "RAW" | "FORMDATA"; raw?: { content: string; contentType?: string }; formData?: Record<string, string> };
 }
 
 export interface VmsConfig {
@@ -132,6 +132,10 @@ export function buildTriggerBody(type: string, config: unknown): { trigger: Reco
   if (info.category === "webhook") {
     const c = config as WebhookConfig;
     if (!c?.method || !c?.url) throw new Error(`Webhook config requires "method" and "url".`);
+    if (c.httpBody?.type === "RAW" &&
+        (!c.httpBody.raw || typeof c.httpBody.raw !== "object" || typeof c.httpBody.raw.content !== "string")) {
+      throw new Error('Webhook httpBody.raw requires an object with a string "content" field and optional "contentType", for example { content: "{\\"test\\":true}", contentType: "application/json" }.');
+    }
     return {
       trigger: {
         [type]: {
@@ -341,6 +345,8 @@ export function mergeTriggerIntoRule(
   // the rename: the request's `cameraIds` is stored as `cameras`.
   const condition = parseCondition(read.condition);
   if (condition) {
+    // CAMERA_ABNORMAL stores its subtypes in the condition as well.
+    carryValue("abnormalTypes", condition.abnormalTypes);
     carryValue("roiIds", condition.roiIds);
     carryValue("cameraIds", condition.cameras);
     carryValue("hashtags", condition.hashtags);
@@ -348,10 +354,22 @@ export function mergeTriggerIntoRule(
     carryValue("cooldownInterval", condition.cooldownInterval);
   }
 
+  // Camera-scoped rules also expose their targets as Camera objects here.
+  // A CAMERA_ABNORMAL PATCH requires cameraIds even when the array is empty.
+  // Do not turn an absent/malformed association into an empty grant list.
+  if (body.cameraIds === undefined && Array.isArray(read.alertRulePermissions) &&
+      read.alertRulePermissions.every(camera => camera && typeof camera === "object" &&
+        Number.isSafeInteger((camera as Record<string, unknown>).cameraId))) {
+    carryValue("cameraIds", read.alertRulePermissions.map(camera => (camera as Record<string, unknown>).cameraId));
+  }
+
   return {
     body,
     carriedForward,
-    missingRequired: ALERT_RULE_REQUIRED_FIELDS.filter((f) => body[f] === undefined),
+    missingRequired: [
+      ...ALERT_RULE_REQUIRED_FIELDS.filter((f) => body[f] === undefined),
+      ...(body.alertType === "CAMERA_ABNORMAL" && body.cameraIds === undefined ? ["cameraIds"] : []),
+    ],
     unrecoverable: unreadable.filter((f) => !carriedForward.includes(f)),
   };
 }

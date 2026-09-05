@@ -69,6 +69,8 @@ const SENSITIVE_KEYS = new Set([
   "uploadedchainkey",
   "uploadedpublickey",
   "serialkey",
+  "token",
+  "authorization",
 ]);
 
 function isSensitiveKey(key: string): boolean {
@@ -114,10 +116,15 @@ function tryRedactEmbeddedJson(text: string): string | undefined {
 const URL_USERINFO = /([a-z][a-z0-9+.-]*:\/\/)([^\s/?#@:]+):([^\s/?#@]*)@/gi;
 
 function redactUrlCredentials(text: string): string {
-  return text.replace(URL_USERINFO, (whole, scheme: string, user: string, password: string) =>
+  const redacted = text.replace(URL_USERINFO, (whole, scheme: string, user: string, password: string) =>
     // An empty password is not a secret, and replacing it would invent one.
     password.length > 0 ? `${scheme}${user}:${REDACTED}@` : whole
   );
+  // Preserve the spelling of URLs while masking credential query fields.
+  return redacted.replace(/([?&])([^\s=&#]+)=([^\s&#]*)/g, (whole, separator: string, key: string) => {
+    try { return isSensitiveKey(decodeURIComponent(key)) ? `${separator}${key}=${REDACTED}` : whole; }
+    catch { return whole; }
+  });
 }
 
 /**

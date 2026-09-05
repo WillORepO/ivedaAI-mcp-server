@@ -2,6 +2,7 @@ import { fetch, Agent, type Dispatcher } from "undici";
 import { connectionFailureMessage } from "./netError.js";
 import type { SwaggerContext } from "./swagger.js";
 import { uploadPolicyFromEnv, type UploadPolicy } from "./uploadPath.js";
+import { setTimeout as delay } from "node:timers/promises";
 
 export interface IvedaAIConfig {
   origin: string;
@@ -88,8 +89,8 @@ const DEFAULT_MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 function positiveIntEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   if (!raw) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  const parsed = Number(raw);
+  if (!/^[1-9]\d*$/.test(raw) || !Number.isSafeInteger(parsed) || parsed > 2_147_483_647) {
     throw new Error(`${name} must be a positive integer, got "${raw}".`);
   }
   return parsed;
@@ -107,6 +108,14 @@ export function loadConfig(ctx: SwaggerContext): IvedaAIConfig {
   }
   if (!username || !password) {
     throw new Error("IVEDAAI_USERNAME and IVEDAAI_PASSWORD must be set to authenticate with the IvedaAI API.");
+  }
+
+  try {
+    const url = new URL(origin);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password ||
+        url.pathname !== "/" || url.search || url.hash) throw new Error();
+  } catch {
+    throw new Error("IVEDAAI_BASE_URL must be an http:// or https:// origin with no credentials, path, query, or fragment.");
   }
 
   let dispatcher: Dispatcher | undefined;
@@ -150,6 +159,7 @@ export class TokenManager {
   private refreshToken?: string;
   private expiresAtMs = 0;
   private inFlight?: Promise<string>;
+  private readonly lifetime = new AbortController();
 
   constructor(private readonly config: IvedaAIConfig) {}
 
@@ -190,11 +200,20 @@ export class TokenManager {
   }
 
   /** Drops the cached tokens so the next getAccessToken() performs a fresh login. */
-  invalidateToken(): void {
+  invalidateToken(rejectedToken?: string): void {
+    // A late 401 for an older request must not discard a newer login.
+    if (rejectedToken !== undefined && this.accessToken !== rejectedToken) return;
     this.accessToken = undefined;
     this.refreshToken = undefined;
     this.expiresAtMs = 0;
   }
+
+  async close(): Promise<void> {
+    this.lifetime.abort();
+    await this.config.dispatcher?.destroy();
+  }
+
+  get shutdownSignal(): AbortSignal { return this.lifetime.signal; }
 
   async getAccessToken(): Promise<string> {
     if (this.accessToken && Date.now() < this.expiresAtMs - EXPIRY_SAFETY_MARGIN_MS) {
@@ -230,14 +249,14 @@ export class TokenManager {
       if ("token" in outcome) return outcome.token;
       lastRetryable = outcome.retryable;
       if (attempt >= TOKEN_RETRY_DELAYS_MS.length) break;
-      await sleep(retryDelayMs(attempt, outcome.retryAfterMs));
+      await delay(retryDelayMs(attempt, outcome.retryAfterMs), undefined, { signal: this.lifetime.signal });
     }
     throw new Error(
       `IvedaAI OAuth token request failed (${lastRetryable!.status}) after ${TOKEN_RETRY_DELAYS_MS.length + 1} attempts ` +
         `over ~${Math.round(TOKEN_RETRY_DELAYS_MS.reduce((a, b) => a + b, 0) / 100) / 10}s. The token endpoint rate-limits ` +
         `repeated logins, so this usually means another client started at the same moment — two MCP clients, or a restart ` +
         `racing an instance that is still running. It clears on its own within a few seconds; starting one client at a ` +
-        `time avoids it. Response: ${lastRetryable!.body.slice(0, 200)}`
+        `time avoids it. The authentication response body is withheld to protect credentials.`
     );
   }
 
@@ -267,8 +286,9 @@ export class TokenManager {
         method: "POST",
         headers,
         body: form.toString(),
+        redirect: "error",
         dispatcher: this.config.dispatcher,
-        signal: AbortSignal.timeout(this.config.timeoutMs),
+        signal: AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(this.config.timeoutMs)]),
       });
     } catch (err) {
       if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
@@ -280,16 +300,38 @@ export class TokenManager {
       if (connection) throw new Error(connection);
       throw err;
     }
-    const bodyText = await response.text();
+    // Token responses are small. Bound the read independently of API result
+    // budgets and never echo an authentication response, including errors.
+    const reader = response.body?.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      if (reader) while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > 65_536) {
+          await reader.cancel();
+          throw new Error("IvedaAI OAuth token response exceeded the 65536-byte limit.");
+        }
+        chunks.push(value);
+      }
+    } catch (err) {
+      if (err instanceof Error && ["TimeoutError", "AbortError"].includes(err.name)) {
+        throw new Error(`IvedaAI OAuth token response timed out after ${this.config.timeoutMs}ms.`);
+      }
+      throw err;
+    } finally { reader?.releaseLock(); }
+    const bodyText = Buffer.concat(chunks).toString("utf8");
     if (!response.ok) {
       if (RETRYABLE_TOKEN_STATUSES.has(response.status)) {
         return {
-          retryable: { status: response.status, body: bodyText },
+          retryable: { status: response.status, body: "[withheld]" },
           retryAfterMs: parseRetryAfter(response.headers.get("retry-after")),
         };
       }
       throw new Error(
-        `IvedaAI OAuth token request failed (${response.status} ${response.statusText}): ${bodyText.slice(0, 500)}`
+        `IvedaAI OAuth token request failed (${response.status} ${response.statusText}). Check the account credentials and deployment authentication configuration. Response body withheld to protect credentials.`
       );
     }
 
@@ -297,7 +339,14 @@ export class TokenManager {
     try {
       parsed = JSON.parse(bodyText);
     } catch {
-      throw new Error(`IvedaAI OAuth token response was not valid JSON: ${bodyText.slice(0, 500)}`);
+      throw new Error("IvedaAI OAuth token response was not valid JSON. Response body withheld to protect credentials.");
+    }
+
+    if (!parsed || typeof parsed.access_token !== "string" || !parsed.access_token.trim() ||
+        /[\r\n]/.test(parsed.access_token) ||
+        (parsed.expires_in !== undefined && (typeof parsed.expires_in !== "number" || !Number.isFinite(parsed.expires_in) || parsed.expires_in <= 0)) ||
+        (parsed.refresh_token !== undefined && typeof parsed.refresh_token !== "string")) {
+      throw new Error("IvedaAI OAuth token response has invalid token fields. Response body withheld to protect credentials.");
     }
 
     this.accessToken = parsed.access_token;
@@ -366,8 +415,6 @@ function parseRetryAfter(header: string | null): number | undefined {
   if (Number.isFinite(when)) return Math.min(Math.max(when - Date.now(), 0), 10_000);
   return undefined;
 }
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * A warning about the transport, or undefined when there is nothing to say.

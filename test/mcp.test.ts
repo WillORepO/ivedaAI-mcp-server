@@ -24,6 +24,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadSwagger, tagToToolName } from "../src/swagger.js";
 import { policyFromEnv, allowedOperations } from "../src/accessPolicy.js";
+import { MULTIPART_BODY_FIELD, MULTIPART_FILE_FIELD } from "../src/request.js";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
@@ -898,7 +899,7 @@ describe("MCP server over stdio", () => {
    * literal back into a registration.
    */
   it("registers the hand-written tools from the measured constants, not inline text", () => {
-    const source = readFileSync(SERVER_ENTRY, "utf8");
+    const source = readFileSync(new URL("../src/server.ts", import.meta.url), "utf8");
     for (const constant of ["GET_SCHEMA_DESCRIPTION", "ALERT_INTEGRATION_DESCRIPTION", "ADD_CAMERA_DESCRIPTION"]) {
       expect(source, constant).toContain(`description: ${constant},`);
     }
@@ -1200,8 +1201,8 @@ describe("MCP server over stdio", () => {
         const expected = {
           path: ops.some((o) => o.parameters.some((p) => p.in === "path")),
           query: ops.some((o) => o.parameters.some((p) => p.in === "query")),
-          body: ops.some((o) => o.parameters.some((p) => p.in === "body")),
-          file: ops.some((o) => o.parameters.some((p) => p.in === "formData" && p.type === "file")),
+          body: ops.some((o) => o.parameters.some((p) => p.in === "body" || (p.in === "formData" && p.type !== "file")) || MULTIPART_BODY_FIELD[o.id]),
+          file: ops.some((o) => o.parameters.some((p) => p.in === "formData" && p.type === "file") || MULTIPART_FILE_FIELD[o.id]),
         };
         for (const [field, reachable] of Object.entries(expected)) {
           expect(field in declared, `${tool.name}.${field} declared`).toBe(reachable);

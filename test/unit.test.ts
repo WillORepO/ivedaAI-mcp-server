@@ -906,6 +906,7 @@ describe("computeRoundTripGaps", () => {
     // roiIds, a VIDEO_SEARCH rule's holds cameras/hashtags/typeLogic. `schedule`
     // carries weekdays and, renamed, enableForever.
     expect(fieldsOf(gap.renamed)).toEqual([
+      "abnormalTypes",
       "cameraIds",
       "cooldownInterval",
       "enableForever",
@@ -1751,9 +1752,8 @@ describe("access policy", () => {
   it("reads both switches from the environment", () => {
     expect(policyFromEnv({} as NodeJS.ProcessEnv)).toEqual({ readOnly: false, allowCollectionDelete: false });
     expect(policyFromEnv({ IVEDAAI_READ_ONLY: "true" } as NodeJS.ProcessEnv).readOnly).toBe(true);
-    // Anything other than the exact string is off — a stray "1" or "yes" must
-    // not silently unlock destructive calls.
-    expect(policyFromEnv({ IVEDAAI_ALLOW_COLLECTION_DELETE: "1" } as NodeJS.ProcessEnv).allowCollectionDelete).toBe(false);
+    // Ambiguous safety settings fail closed at startup.
+    expect(() => policyFromEnv({ IVEDAAI_ALLOW_COLLECTION_DELETE: "1" } as NodeJS.ProcessEnv)).toThrow('must be exactly');
   });
 });
 
@@ -2075,7 +2075,12 @@ describe("capability notes", () => {
     // never finishes. Two independent live runs both had to discover the
     // filter/size=1/pagination.total technique for themselves before they
     // could answer at all.
-    expect(Object.keys(CAPABILITY_NOTES).length).toBeLessThan(9);
+    // Raised from 9 to 10 after live uploads demonstrated that the legacy
+    // endpoint silently misdates spaced timestamps. The note steers callers
+    // to the current endpoint and gives the verified legacy format.
+    expect(capabilityNote("POST /api/jobs")).toContain("yyyyMMddHHmmss");
+    expect(capabilityNote("POST /api/jobs")).toContain("POST /api/jobs/upload");
+    expect(Object.keys(CAPABILITY_NOTES).length).toBeLessThan(10);
   });
 });
 

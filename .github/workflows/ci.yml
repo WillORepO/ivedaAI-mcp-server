@@ -27,16 +27,14 @@ jobs:
       # One version failing should not hide whether the other does too.
       fail-fast: false
       matrix:
-        # 20.18.1 is the real floor: undici 7 declares `>=20.18.1`, so the
-        # package cannot run below it whatever package.json's `engines` says.
-        # 24.x is current. Testing both catches a dependency that quietly needs
-        # something newer, which is exactly how the old floor went stale.
-        node: ["20.18.1", "24.x"]
+        node: ["22.16.0", "24.x"]
     name: node ${{ matrix.node }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -44,6 +42,7 @@ jobs:
       # `ci` rather than `install`: fails on a lockfile that disagrees with
       # package.json instead of quietly resolving something else.
       - run: npm ci
+      - run: npm audit --audit-level=high
 
       - run: npm run build
 

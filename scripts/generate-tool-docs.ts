@@ -13,6 +13,7 @@ import { describeTriggerTypes } from "../src/alertTrigger.js";
 import { lossyUpdateWarning } from "../src/partialUpdate.js";
 import { computeRoundTripGaps, roundTripWarning } from "../src/roundTrip.js";
 import { capabilityNote } from "../src/capabilityNotes.js";
+import { MULTIPART_BODY_FIELD, MULTIPART_FILE_FIELD } from "../src/request.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ctx = loadSwagger();
@@ -31,7 +32,7 @@ function operationSection(op: Operation): string {
   lines.push(`#### \`${op.id}\`${op.summary ? ` — ${op.summary}` : ""}`);
   lines.push("");
 
-  const tableParams = op.parameters.filter((p) => p.in === "path" || p.in === "query");
+  const tableParams = op.parameters.filter((p) => p.in === "path" || p.in === "query" || (p.in === "formData" && p.type !== "file"));
   const bodyParam = op.parameters.find((p) => p.in === "body");
   const fileParam = op.parameters.find((p) => p.in === "formData" && p.type === "file");
 
@@ -52,7 +53,10 @@ function operationSection(op: Operation): string {
     );
     lines.push("");
   }
-  if (tableParams.length === 0 && !bodyParam && !fileParam) {
+  if (tableParams.some(p => p.in === "formData")) lines.push("Pass form fields via the `body` argument.\n");
+  if (!fileParam && MULTIPART_FILE_FIELD[op.id]) lines.push(`**File upload:** required \`file: { path, filename?, contentType? }\`, sent as \`${MULTIPART_FILE_FIELD[op.id]}\`. The API document omits this part.\n`);
+  if (!bodyParam && MULTIPART_BODY_FIELD[op.id]) lines.push(`**Body:** JSON side-payload sent in multipart text field \`${MULTIPART_BODY_FIELD[op.id]}\`${op.id.includes('/colors') ? ' (an array of color-detection regions)' : ''}.\n`);
+  if (tableParams.length === 0 && !bodyParam && !fileParam && !MULTIPART_FILE_FIELD[op.id] && !MULTIPART_BODY_FIELD[op.id]) {
     lines.push("_No parameters._");
     lines.push("");
   }
@@ -154,7 +158,8 @@ out.push(
     "automatically), creating the record is not enough for the camera to connect or appear fully provisioned — a " +
     "separate `POST /api/cameras/{id}/jobs?activate=true` step is required and performed automatically — and a " +
     "creation error can still partially create the camera server-side (detected by an exact-name lookup and " +
-    "reported as `created_despite_error` rather than a false `failed`)."
+    "reported as a failed creation with the matching id for inspection). The match can predate this call, " +
+    "so it is never activated automatically after a creation error."
 );
 out.push("");
 out.push(
