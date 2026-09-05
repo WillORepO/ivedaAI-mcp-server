@@ -7,6 +7,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { expect, it } from 'vitest';
 import { policyFromEnv } from '../src/accessPolicy.js';
+import { buildTriggerBody, mergeTriggerIntoRule } from '../src/alertTrigger.js';
 
 async function withMcp(handler: (req: IncomingMessage, res: ServerResponse) => void, run: (client: Client) => Promise<void>, env: Record<string,string> = {}) {
   const server = createServer(handler);
@@ -23,6 +24,36 @@ async function withMcp(handler: (req: IncomingMessage, res: ServerResponse) => v
 function token(req:IncomingMessage,res:ServerResponse):boolean {
   if(req.url?.startsWith('/ainvr/api/oauth2/token')) { res.setHeader('content-type','application/json'); res.end(JSON.stringify({access_token:'fixture-token',expires_in:600})); return true; } return false;
 }
+
+it('preserves camera abnormal conditions when applying a webhook',async()=>{
+  let patched:Record<string,unknown>|undefined;
+  await withMcp((req,res)=>{
+    if(token(req,res))return;
+    res.setHeader('content-type','application/json');
+    if(req.method==='GET'){res.end(JSON.stringify({alertName:'owned-rule',alertType:'CAMERA_ABNORMAL',isEnabled:false,alertRulePermissions:[{cameraId:42}],schedule:{forever:true,weekdays:null},condition:JSON.stringify({abnormalTypes:['Disconnect'],typeLogic:'and',cooldownInterval:60})}));return;}
+    let data='';req.on('data',c=>data+=c);req.on('end',()=>{patched=JSON.parse(data);res.statusCode=Array.isArray(patched?.abnormalTypes)?200:400;res.end('{}');});
+  },async c=>{
+    const r=await c.callTool({name:'ivedaai_alert_integration',arguments:{action:'apply',type:'request',alertRuleId:'owned-rule',config:{method:'POST',url:'https://example.invalid/test'}}});
+    expect(r.isError).toBe(false);
+    expect(patched).toMatchObject({abnormalTypes:['Disconnect'],cameraIds:[42],isEnabled:false,enableForever:true,cooldownInterval:60});
+  });
+});
+
+it('rejects an ambiguous raw webhook body and preserves the documented object',()=>{
+  expect(()=>buildTriggerBody('request',{method:'POST',url:'https://example.invalid/test',httpBody:{type:'RAW',raw:'{"test":true}'}})).toThrow(/raw.*content/i);
+  const raw={content:'{"test":true}',contentType:'application/json'};
+  expect(buildTriggerBody('request',{method:'POST',url:'https://example.invalid/test',httpBody:{type:'RAW',raw}})).toMatchObject({trigger:{request:{requests:[{httpBody:{type:'RAW',raw}}]}}});
+});
+
+it('does not turn missing or malformed camera associations into an empty target list',()=>{
+  const rule={alertName:'owned',alertType:'CAMERA_ABNORMAL'};
+  for(const permissions of [undefined,null,[{}],[{cameraId:42},{}]]) {
+    const result=mergeTriggerIntoRule({...rule,alertRulePermissions:permissions},{trigger:{}},[]);
+    expect(result.missingRequired).toContain('cameraIds');
+    expect(result.body).not.toHaveProperty('cameraIds');
+  }
+  expect(mergeTriggerIntoRule({...rule,alertRulePermissions:[]},{trigger:{}},[]).body.cameraIds).toEqual([]);
+});
 
 it('never exposes credential fields from a response truncated in the middle of JSON', async()=> {
   await withMcp((req,res)=> { if(token(req,res))return;res.setHeader('content-type','application/json');res.end(JSON.stringify({password:'truncated-secret-sentinel',padding:'x'.repeat(500)})); },async c=> {

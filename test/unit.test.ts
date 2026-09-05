@@ -906,6 +906,7 @@ describe("computeRoundTripGaps", () => {
     // roiIds, a VIDEO_SEARCH rule's holds cameras/hashtags/typeLogic. `schedule`
     // carries weekdays and, renamed, enableForever.
     expect(fieldsOf(gap.renamed)).toEqual([
+      "abnormalTypes",
       "cameraIds",
       "cooldownInterval",
       "enableForever",

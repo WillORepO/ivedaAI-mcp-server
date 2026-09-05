@@ -99,6 +99,7 @@ const READ_LOCATIONS: Record<string, Record<string, string>> = {
   // than broken.
   AlertRuleRequest: {
     name: "alertName",
+    abnormalTypes: "condition (JSON string).abnormalTypes",
     roiIds: "condition (JSON string).roiIds",
     cameraIds: "condition (JSON string).cameras",
     hashtags: "condition (JSON string).hashtags",

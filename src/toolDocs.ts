@@ -383,16 +383,16 @@ export const ALERT_INTEGRATION_DESCRIPTION =
         "  apply — attaches the built trigger to an existing alert rule (`alertRuleId`, its UUID). Does not require " +
         "having called 'test' first, but doing so is recommended. It reads the rule first and re-sends everything " +
         "the read exposes alongside the new trigger: name (returned as alertName), alertType, description, " +
-        "isEnabled, plus weekdays/enableForever from `schedule` and roiIds/cameraIds/hashtags/typeLogic/" +
+        "isEnabled, plus weekdays/enableForever from `schedule` and abnormalTypes/roiIds/cameraIds/hashtags/typeLogic/" +
         "cooldownInterval parsed out of the " +
-        "`condition` JSON string. It refuses to write if that read fails or lacks the required fields. This is " +
-        "precaution rather than repair — PATCH /api/alertRules/{alertRuleId} was live-tested and merges, leaving " +
-        "omitted fields alone, so applying a trigger does not wipe the rule. (PUT on the same path is different: " +
+        "`condition` JSON string. Camera targets can also be recovered from alertRulePermissions[].cameraId. " +
+        "It refuses to write if the read fails or lacks needed fields. CAMERA_ABNORMAL updates require the " +
+        "camera target list even though PATCH preserves other omitted fields. (PUT on the same path is different: " +
         "it rejects a partial body with a 500, so send the full object there.)\n\n" +
         "Config shape by category:\n" +
         "  webhook (request): { method, url, headers?, params?, authorization?, httpBody? } — authorization/httpBody " +
         "default to {auth:\"NONE\"}/{type:\"NONE\"} automatically; the server requires them present even when unused, " +
-        "despite the spec marking them optional.\n" +
+        "despite the spec marking them optional. For JSON use httpBody: {type:\"RAW\", raw:{content:\"JSON string\", contentType:\"application/json\"}}.\n" +
         "  vms (13 named platforms): { ip, port, username?, password?, protocol?, severity?, cameraIds?, ... } — see " +
         "ivedaai_get_schema(\"AlertTriggerNvr\") for the full field list.\n" +
         "  mail/immix: { emails: [{mailIds?, subject?, content?}], smtpServer, port }\n" +

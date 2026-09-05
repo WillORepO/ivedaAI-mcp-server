@@ -35,7 +35,7 @@ On 2026-09-04, the complete measurement was:
 
 | Configuration | Tools | API operations | Characters | Approximate tokens |
 | --- | --- | --- | --- | --- |
-| Default | 66 | 295 | 170,142 | 42,536 |
+| Default | 66 | 295 | 170,325 | 42,581 |
 | Read-only | 55 | 132 | 102,764 | 25,691 |
 
 Tokens are a characters/4 estimate, not a tokenizer result. Clients may discover tools lazily or

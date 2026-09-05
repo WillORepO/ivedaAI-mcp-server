@@ -17,6 +17,19 @@ the API for you:
 
 ## Connecting
 
+### Prepare the application account
+
+Create a dedicated account with the privileges and record grants needed for the intended workflows.
+On the tested IvedaAI 10 deployment, account creation requires an explicit
+`activeUserSelfManagementMfa` boolean even though the OpenAPI schema marks it optional; omitting it
+returns HTTP 500. Supply the value intended by your account policy. An inactive account cannot log in.
+
+Complete any required first-login password change in the application's web interface before
+configuring MCP. The deployment rejected ordinary API requests and account PATCH requests with
+error 112 until this step was completed. Store the resulting password in your client's secret
+configuration. MCP's read-only mode limits exposed operations; application privileges and record
+grants still determine which cameras or other records the account may access.
+
 ### 1. Build
 
 ```bash

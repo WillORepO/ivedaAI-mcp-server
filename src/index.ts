@@ -599,7 +599,7 @@ if (ACCESS_POLICY.readOnly) {
                 type: "text",
                 text:
                   `Refusing to apply the trigger: reading alert rule ${alertRuleId} did not yield ` +
-                  `${merged.missingRequired.map((f) => `"${f}"`).join(", ")}, which AlertRuleRequest marks required.\n\n` +
+                  `${merged.missingRequired.map((f) => `"${f}"`).join(", ")}, needed to preserve this rule safely.\n\n` +
                   `Sending the update anyway would mean a partial body on an endpoint that may null what it does ` +
                   `not receive. If you know the rule's full definition, send it yourself via the ivedaai_alert ` +
                   `tool ("PATCH /api/alertRules/{alertRuleId}") with a complete body.\n\n` +

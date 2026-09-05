@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Production-readiness audit fixes
 
+- Preserve camera associations and abnormal-event subtypes when applying webhook triggers to
+  camera-abnormal rules. Refuse ambiguous missing associations instead of clearing camera targets.
+- Validate the structured RAW webhook body and document account provisioning and first-login
+  requirements verified on the test deployment.
 - Validate the deprecated upload endpoint's documented `yyyyMMddHHmmss` timestamps before network
   traffic. Live testing confirmed that spaced dates can silently produce footage with the wrong date;
   the current upload endpoint accepts ISO timestamps with an explicit offset correctly.
