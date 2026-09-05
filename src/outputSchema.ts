@@ -152,7 +152,7 @@ export const addCameraOutput = {
     .array(
       z.object({
         name: z.string(),
-        outcome: z.string().describe("created | created_despite_error | invalid_spec | failed."),
+        outcome: z.string().describe("created | invalid_spec | failed. Inspect any cameraId returned with a failed creation before retrying."),
         cameraId: z.unknown().optional(),
         warnings: z.array(z.string()).optional().describe("Fields this tool defaulted rather than took from the request."),
         note: z.string().optional(),

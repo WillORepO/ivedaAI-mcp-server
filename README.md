@@ -7,11 +7,16 @@ Code, or anything else that speaks the protocol — at your IvedaAI deployment a
 language: search footage, manage cameras and alert rules, run analysis jobs, work with face and
 licence-plate watchlists.
 
-316 API operations are exposed as 63 tools, one per resource type. See [why](docs/DESIGN.md#design).
+The bundled API defines 316 operations. By default, 295 are exposed through 63 resource tools,
+plus three helper tools; 21 collection-wide DELETEs are withheld. See [why](docs/DESIGN.md#design).
 
 ## Quickstart
 
-Add this to your MCP client's configuration. Nothing to install first — `npx` fetches it.
+The npm package was not yet available when checked on 2026-09-04. Until the initial release is
+published, clone this repository, run `npm ci` and `npm run build`, then configure the client with `command: "node"`
+and `args: ["/absolute/path/to/ivedaAI-mcp-server/dist/index.js"]`.
+
+After publication, this configuration lets `npx` fetch the package:
 
 ```json
 {
@@ -58,8 +63,9 @@ If you are evaluating this, or connecting it to anything you would not want to w
 "env": { "IVEDAAI_READ_ONLY": "true", "IVEDAAI_BASE_URL": "…", "IVEDAAI_USERNAME": "…", "IVEDAAI_PASSWORD": "…" }
 ```
 
-Every non-GET is withheld from the tool list entirely rather than merely refused, and it roughly
-halves what the tool descriptions cost on connect.
+Mutating operations are withheld from the tool list. Reads include GETs and the three verified
+query-only POSTs for alert statistics, search, and latest alerts. The two write-oriented convenience
+tools are withheld too.
 
 ## Configuration
 
@@ -70,7 +76,7 @@ Only the first three are required.
 | `IVEDAAI_BASE_URL` | — | Origin of your IvedaAI server, e.g. `https://ivedaai.example.com`. No path. |
 | `IVEDAAI_USERNAME` | — | IvedaAI account username. |
 | `IVEDAAI_PASSWORD` | — | IvedaAI account password. |
-| `IVEDAAI_READ_ONLY` | `false` | `true` serves reads only: non-GET operations are withheld from every tool, and the two write-oriented convenience tools are not registered. |
+| `IVEDAAI_READ_ONLY` | `false` | `true` serves GETs and verified query-only alert POSTs; mutating operations and the two write-oriented convenience tools are withheld. |
 | `IVEDAAI_ALLOW_COLLECTION_DELETE` | `false` | `true` permits the 21 DELETEs that name no record — see [Destructive operations](#destructive-operations). |
 | `IVEDAAI_REDACT_SECRETS` | `true` | Masks credential-shaped fields (keys, secrets, passphrases) in responses. `false` disables it. |
 | `IVEDAAI_ALLOW_INSECURE_TLS` | `false` | `true` skips TLS certificate verification, for on-prem deployments with self-signed certificates. Traffic stays encrypted; the certificate is not checked. Scoped to this server's requests, not process-wide. |
@@ -85,7 +91,8 @@ Only the first three are required.
 | `IVEDAAI_ALLOW_LOSSY_UPDATE` | `false` | `true` disables the [lossy-update guard](docs/DESIGN.md#the-lossy-update-guard). Intended for the maintainers' CRUD probe; leave it unset. |
 | `IVEDAAI_SWAGGER_PATH` | bundled | Path to an alternate OpenAPI 3 document, if your deployment's API differs from the bundled one. |
 
-Copy [`.env.example`](.env.example) if you prefer a file.
+Copy [`.env.example`](.env.example) if you prefer a file. The server does not load `.env` automatically:
+export its values into the environment or run a local build with `node --env-file=.env dist/index.js`.
 
 ### Authentication
 
@@ -125,8 +132,27 @@ than every tool description carrying it.
 
 ## Requirements
 
-Node 20.18.1 or newer, and an IvedaAI 10.0 deployment. The bundled API document is 10.0; point
+Node 22.12.0 or newer, and an IvedaAI 10.0 deployment. Use the latest patched Node 22 or 24 LTS
+release in production; Node 20 is no longer supported. The bundled API document is 10.0; point
 `IVEDAAI_SWAGGER_PATH` at your own if you run something else.
+
+## Production operation
+
+Each MCP client starts its own process and communicates over stdin/stdout. There is no HTTP
+listener, database, container, or separate health endpoint. Successful MCP initialization and a
+small authorized read provide the startup and integration checks.
+
+Use HTTPS with a valid certificate, a dedicated IvedaAI account with only the required application
+permissions, and read-only mode for monitoring. The server adds read-only, collection-delete,
+lossy-update, and upload restrictions; record-level authorization remains IvedaAI's responsibility.
+Treat client configuration as a secret and approve an upload directory only when uploads are needed.
+After release, pin the approved npm version in your client configuration for reproducible installs.
+
+Outbound redirects are refused. Configure the final deployment origin directly. Incomplete or
+malformed JSON is withheld when redaction is enabled, since its credential fields cannot be
+reliably masked. Reduce the page size or narrow the filter; SSE reads retain only complete,
+redacted events. Cancellation and client disconnect stop further API work, but cannot undo an
+application write already received. Inspect uncertain writes before retrying.
 
 ## Contributing
 

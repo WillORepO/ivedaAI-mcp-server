@@ -95,7 +95,7 @@ export function defaultRoiContour(resolution: string = DEFAULT_RESOLUTION): unkn
  */
 function guessStreamUrl(spec: CameraSpec): string {
   const port = spec.port ?? 554;
-  const auth = spec.account ? `${spec.account}:${spec.password ?? ""}@` : "";
+  const auth = spec.account ? `${encodeURIComponent(spec.account)}:${encodeURIComponent(spec.password ?? "")}@` : "";
   return `rtsp://${auth}${spec.ip}:${port}`;
 }
 
@@ -115,7 +115,7 @@ export function buildCameraBody(spec: CameraSpec, defaultEngineProfileId: number
     }
     streamUrl = guessStreamUrl(spec);
     warnings.push(
-      `No streamUrl given — guessed "${streamUrl}" (bare RTSP root path). Many cameras need a ` +
+      `No streamUrl given — guessed a bare RTSP root URL from the supplied connection fields. Many cameras need a ` +
         `manufacturer-specific path instead; if this doesn't connect, supply the exact streamUrl.`
     );
   }

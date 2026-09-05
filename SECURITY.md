@@ -38,7 +38,7 @@ deployment shape (on-prem, TLS or plain HTTP), and enough detail to reproduce.
 
 | default | why |
 | --- | --- |
-| Writes are **enabled** | The server's purpose is driving the API. Set `IVEDAAI_READ_ONLY=true` for a read-only deployment; it withholds every non-GET from the tool list rather than merely refusing it. |
+| Writes are **enabled** | Set `IVEDAAI_READ_ONLY=true` for monitoring. It offers GETs and three verified query-only alert POSTs, withholding mutating operations. |
 | Collection-emptying deletes are **withheld** | Twenty-one DELETEs take no id in the path, so the only subject would come from an optional request body — and what the API does with that body omitted is unspecified. `IVEDAAI_ALLOW_COLLECTION_DELETE=true` permits them. |
 | Credential-shaped response fields are **redacted** | Keys, secrets and passphrases are masked in tool output. `IVEDAAI_REDACT_SECRETS=false` disables it. |
 | Insecure transport **warns** | The server writes a warning to stderr when `IVEDAAI_BASE_URL` is plain HTTP to a non-loopback host, or when TLS verification is disabled. |
@@ -77,6 +77,16 @@ bypass the check.
 Prefer a root; do not enable the escape hatch unless compatibility requires it.
 
 ## Credentials
+
+`.env` and `.env.*` are ignored by Git, except for the placeholder `.env.example`. Authentication
+response bodies are bounded and never echoed in errors. HTTP redirects are refused for both login
+and API requests. Redaction covers credential query parameters and URL passwords as well as JSON
+fields. Incomplete JSON is withheld; complete SSE events are redacted individually.
+
+Use a dedicated account with minimal IvedaAI privileges. Tool annotations describe risk to a client;
+they are not authorization checks. Write-enabled tools include administrative configuration and
+server-side network diagnostics, and integrations can contact destinations from IvedaAI's network.
+Authorize those capabilities through the application account and the MCP client's approval controls.
 
 `IVEDAAI_USERNAME` and `IVEDAAI_PASSWORD` are read from the environment and never written to disk by
 this server. They are, however, visible to anything that can read the MCP client's configuration

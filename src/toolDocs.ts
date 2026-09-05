@@ -1,4 +1,5 @@
 import { capabilityNote } from "./capabilityNotes.js";
+import { MULTIPART_BODY_FIELD, MULTIPART_FILE_FIELD } from "./request.js";
 import { describeTriggerTypesCompact } from "./alertTrigger.js";
 import type { Operation, ParamDef, TagGroup } from "./swagger.js";
 import { resolveSchema, type JsonObject, type SchemaNode } from "./swagger.js";
@@ -218,6 +219,12 @@ function describeOperation(
   if (formDataParams.length) {
     lines.push(`  form fields (pass via body): ${formDataParams.map(formatNonBodyParam).join(", ")}`);
   }
+  if (!fileParams.length && MULTIPART_FILE_FIELD[op.id]) {
+    lines.push(`  file: required {path, filename?, contentType?} — upload as "${MULTIPART_FILE_FIELD[op.id]}" (omitted by the API document)`);
+  }
+  if (!bodyParam && MULTIPART_BODY_FIELD[op.id]) {
+    lines.push(`  body: JSON side-payload sent as multipart text field "${MULTIPART_BODY_FIELD[op.id]}"${op.id.includes('/colors') ? '; an array of color-detection regions' : ''}`);
+  }
 
   // What this operation is for, when its summary does not say. Placed above the
   // guards because it answers an earlier question: those two correct a call the
@@ -403,8 +410,8 @@ export const ADD_CAMERA_DESCRIPTION =
         "product UI: a separate activation step (allocating a processing resource and starting the stream) is " +
         "required, which this tool performs automatically unless `activate: false` is passed.\n" +
         "  - A creation error can still partially create the camera server-side before failing. This tool checks " +
-        "for that by exact name after any error and reports `created_despite_error` with the real cameraId instead " +
-        "of a false `failed`, so you don't end up with a confusing orphaned duplicate.\n\n" +
+        "for a matching name after an API error and reports the id for inspection. A name match may predate " +
+        "this call, so the result stays failed and activation is not attempted. Inspect before retrying.\n\n" +
         "Only `name` plus either `streamUrl` or `ip` are required per camera — everything else is optional and " +
         "defaulted (engineProfileId defaults to the first engine profile found; roiContour defaults to a " +
         "full-frame rectangle). Providing the exact `streamUrl` is much more reliable than `ip` alone: this tool " +

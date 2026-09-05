@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Production-readiness audit fixes
+
+- Reject empty and dot-segment path identifiers and empty required query targets before authentication,
+  preventing record DELETEs from becoming collection requests after URL normalization.
+- Withhold incomplete or malformed JSON that cannot be safely redacted; redact complete SSE events,
+  returned credential query fields and headers, and keep authentication response bodies out of errors.
+- Refuse API and OAuth redirects, bound OAuth response reads, validate token fields, and prevent a late
+  401 from invalidating a newer token obtained by another request.
+- Propagate MCP cancellation and shutdown to outbound work. Preserve completed camera-batch results
+  after uncertain network outcomes, and stop the remaining batch.
+- Expose recovered multipart file and body fields in MCP schemas and generated documentation.
+- Never activate a name-matched camera after a failed create; report activation failures and missing
+  create identifiers as errors. Keep guessed RTSP credentials out of warning text.
+- Reject ambiguous safety switches and malformed origin/limit settings; ignore local environment files.
+- Update vulnerable transitive dependencies within existing constraints. Require Node 22.12+ and
+  validate releases on Node 24; pin workflow actions and gate on high dependency vulnerabilities.
+- Replace the stale package file-count gate with an explicit allowlist. Correct publication instructions,
+  read-only documentation, and measured tool-list context cost.
+
+Publication status: the public npm registry returned 404 for this package on 2026-09-04. The historical
+1.0.0 entry below describes the intended release; it is not evidence that publication completed.
+
+
 ### Changed
 
 - `IVEDAAI_READ_ONLY` judges an operation by what it does rather than by its HTTP method. This API

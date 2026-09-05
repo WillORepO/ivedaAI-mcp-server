@@ -1751,9 +1751,8 @@ describe("access policy", () => {
   it("reads both switches from the environment", () => {
     expect(policyFromEnv({} as NodeJS.ProcessEnv)).toEqual({ readOnly: false, allowCollectionDelete: false });
     expect(policyFromEnv({ IVEDAAI_READ_ONLY: "true" } as NodeJS.ProcessEnv).readOnly).toBe(true);
-    // Anything other than the exact string is off — a stray "1" or "yes" must
-    // not silently unlock destructive calls.
-    expect(policyFromEnv({ IVEDAAI_ALLOW_COLLECTION_DELETE: "1" } as NodeJS.ProcessEnv).allowCollectionDelete).toBe(false);
+    // Ambiguous safety settings fail closed at startup.
+    expect(() => policyFromEnv({ IVEDAAI_ALLOW_COLLECTION_DELETE: "1" } as NodeJS.ProcessEnv)).toThrow('must be exactly');
   });
 });
 

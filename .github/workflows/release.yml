@@ -19,15 +19,18 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: "20.18.1"
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.x"
           cache: npm
           registry-url: https://registry.npmjs.org
 
       - run: npm ci
+      - run: npm audit --audit-level=high
 
       # The same gate as CI. `prepublishOnly` runs build and tests again during
       # publish; running the complete gate here means a bad tag fails before
@@ -63,7 +66,10 @@ jobs:
           const paths = pack.files.map((file) => file.path).sort();
           const required = ["dist/index.js", "resources/openapi.json", "package.json", "README.md", "LICENSE", "SECURITY.md"];
           const forbidden = paths.filter((path) => /^(evaluations|scripts|src|test)\//.test(path));
-          if (pack.entryCount !== 22) throw new Error(`expected 22 package entries, found ${pack.entryCount}`);
+          const expected = [...required, ...fs.readdirSync("src").filter(path => path.endsWith(".ts")).map(path => `dist/${path.replace(/\.ts$/, ".js")}`)];
+          const unexpected = paths.filter(path => !expected.includes(path));
+          for (const path of expected) if (!paths.includes(path)) throw new Error(`${path} missing from tarball`);
+          if (unexpected.length) throw new Error(`unexpected package files: ${unexpected.join(", ")}`);
           for (const path of required) if (!paths.includes(path)) throw new Error(`${path} missing from tarball`);
           if (forbidden.length) throw new Error(`development-only files in tarball: ${forbidden.join(", ")}`);
           fs.writeFileSync("/tmp/tarball-name", pack.filename);
@@ -79,6 +85,6 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           generate_release_notes: true

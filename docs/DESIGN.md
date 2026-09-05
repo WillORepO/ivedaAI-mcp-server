@@ -21,7 +21,7 @@ There's also a `ivedaai_get_schema` tool that returns the full JSON schema for a
 truncated for very large objects.
 
 The tool set and all parameter/schema info are generated at startup directly from the bundled
-`resources/openapi.json`, so nothing is hand-maintained per endpoint.
+`resources/openapi.json`, with explicit corrections for omissions and behavior verified against the bundled API version.
 
 ### What this costs a client on connect
 
@@ -29,55 +29,23 @@ The tool set and all parameter/schema info are generated at startup directly fro
 npm run measure   # no deployment or credentials needed
 ```
 
-An MCP client loads every tool definition up front, so their combined size comes out of the context
-budget whether or not a tool is ever called. The one-tool-per-resource decision above was made to
-keep the tool *count* manageable; the token cost was never measured. Measured, it started at
-~82,000 characters on the 9.3 spec. On 10.0, with the default access policy, the descriptions are
-**66,928 characters, ~16,732 tokens** across 63 tools — or **30,127 characters, ~7,532 tokens**
-across 54 tools when `IVEDAAI_READ_ONLY=true`.
+The measured cost includes descriptions, input and output schemas, names, annotations, and
+server instructions. Counting descriptions alone substantially understates what a client receives.
+On 2026-09-04, the complete measurement was:
 
-Descriptions are no longer the whole bill. Each tool also declares an `outputSchema`, and because
-every generated tool answers with the same envelope, the same 601-character schema is transmitted 63
-times: **37,863 characters, ~9,500 tokens**. Adding the two together is what a client actually pays
-for the generated tools.
+| Configuration | Tools | API operations | Characters | Approximate tokens |
+| --- | --- | --- | --- | --- |
+| Default | 66 | 295 | 169,764 | 42,441 |
+| Read-only | 55 | 132 | 102,764 | 25,691 |
 
-| Context window | Default | Read-only | Before the trims |
-| --- | --- | --- | --- |
-| 32,000 | **81.9%** | **48.9%** | 64% |
-| 128,000 | 20.5% | 12.2% | 16% |
-| 200,000 | 13.1% | 7.8% | 10% |
-| 1,000,000 | 2.6% | 1.6% | 2% |
+Tokens are a characters/4 estimate, not a tokenizer result. Clients may discover tools lazily or
+cache definitions; validate the actual customer client. A client loading the entire default list
+into a 32k context cannot fit it. Read-only uses approximately 80% of that context before any work.
 
-Read-only remains the cheapest way to shrink this — 54 tools and 129 operations instead of 63 and
-295 — but it no longer more than halves the bill. Withholding the writes takes about 36,800 characters off
-the descriptions and only 5,400 off the schemas, because a read-only server still declares the same
-envelope on every tool it does offer. In read-only the schema is now the *larger* of the two: 30,127
-characters of description against 32,454 of schema.
-
-Two things came out, neither of which a caller loses access to. Request bodies name their schema
-definition instead of listing every field — the full list is a `ivedaai_get_schema` call away, and
-the *required* field names stay inline because guessing those wrong is a failed call. And the
-paragraph explaining how to call a tool, which used to head all 63 descriptions, is now sent once as
-MCP `instructions`; the part of it a client could not reconstruct from the input schema stays in
-every header, so nothing breaks on a client that ignores `instructions`. The engineering log carries
-the full attribution and the reasoning for where this stopped. The figures above rose again with the
-10.0 upgrade, which added operations and the measured date-format patterns.
-
-At 200k this was always a reasonable price for covering 316 operations. At 32k the server was close
-to unusable before the conversation started; it is now merely expensive.
-
-Of the description total, the capability and live-testing cautions this project added account for
-**13.5%** (~2,267 tokens across 23 of the 295 default-exposed operations) — a minority of the
-budget, but not free.
-
-The obvious lever is moving detail out of the descriptions and leaning on `ivedaai_get_schema`,
-which exists for exactly that. That trades startup context for extra round-trips mid-conversation,
-and which way that trade goes depends on the client and the workload, so nothing has been trimmed on
-a guess. The other lever is the output schema, where the multiplier is unforgiving: every character
-is paid 63 times, so the nested detail of `omittedFields` alone was worth 38,000 characters and was
-dropped for that reason (see `src/outputSchema.ts`). `npm run measure` exists so both numbers can be
-re-checked rather than trusted — run it before and after anything that touches tool descriptions or
-the declared result shape.
+The tool descriptions retain required parameters and operational cautions. Full body schemas are
+available through `ivedaai_get_schema`. Run `npm run measure` after changing the tool surface;
+run with `IVEDAAI_READ_ONLY=true` to measure the restricted surface. Operation filtering or lazy
+discovery would need a separate compatibility decision before reducing the advertised surface.
 
 ### ivedaai_alert_integration — a guided, hand-built exception
 
@@ -123,9 +91,9 @@ gap. Confirmed by live testing:
   `engineModels` fields stay null indefinitely.
 
 `ivedaai_add_camera` encodes all of this: it fills in every field found to be silently required,
-detects and reports partial creation-despite-error instead of a false failure, and automatically
-performs the activation step. What it deliberately does **not** claim: that activation succeeding
-means the stream is connected. In testing, a confirmed-correct RTSP URL still sat at
+reports a matching camera for inspection after an API error, and activates only after a successful
+create with a valid id. A name match cannot prove this call created a record. Successful activation
+does not establish that the stream connected. In testing, a confirmed-correct RTSP URL still sat at
 `Running`/0% progress with no error at all for 90+ seconds — most likely a network-reachability
 issue between the IvedaAI server and the camera, not something this tool (or the API) can detect
 or fix. The tool's output always points to checking back via `ivedaai_job` or `ivedaai_camera` for
@@ -146,7 +114,9 @@ Every tool call returns a JSON envelope:
 `isError` is set on the MCP result for HTTP status >= 400. Two extra flags may appear:
 `truncated: true` when the body exceeded `IVEDAAI_MAX_RESPONSE_BYTES`, and `timedOut: true` when
 reading the body hit the timeout — typical for continuous streams (see below), in which case
-`body` contains whatever was read before the cutoff.
+incomplete bodies are withheld when credential redaction is enabled. SSE retains only complete,
+redacted events; incomplete event tails are discarded. With redaction disabled, partial raw text
+can be returned.
 
 That envelope is returned twice: serialised into the result's text block, and as
 `structuredContent` for clients that would rather not parse JSON out of prose. Both are serialised
@@ -474,7 +444,7 @@ the pre-read fails or comes back without the required fields.
 
 - **Streaming endpoints** (`GET /api/system/events` server-sent events, `*.mjpeg` motion-JPEG
   streams) never terminate on their own. Calls to them return after `IVEDAAI_TIMEOUT_MS` with
-  `timedOut: true` and whatever data arrived — they can't be consumed continuously through a tool
+  `timedOut: true` and any complete redacted SSE events — they can't be consumed continuously through a tool
   call.
 - **Supported image responses are attached as MCP image content** — JPEG, PNG, GIF and WebP can be
   viewed by the model. Other binary responses return `{ contentType, byteLength, filename? }`
@@ -490,8 +460,9 @@ the pre-read fails or comes back without the required fields.
   decoded as UTF-8 into the response body: context flooded, and the archive corrupted past recovery
   by the lossy decode. Erring toward binary costs a caller some metadata; erring the other way
   destroys the payload, so anything not known to be text is now kept as bytes.
-- Tools whose resource includes DELETE operations are annotated with `destructiveHint`; tools with
-  only GET operations are annotated `readOnlyHint`.
+- Tools whose resource includes DELETE, PUT, or PATCH operations are annotated with `destructiveHint`;
+  tools containing only GETs or verified query-only POSTs are annotated `readOnlyHint`.
+  Annotations guide clients; the server enforces its access policy independently.
 - Unknown `path`/`query` parameter names are rejected with the list of valid names rather than
   silently dropped, so typos surface immediately.
 - Body schema summaries in tool descriptions are one level deep and capped at 40 properties per

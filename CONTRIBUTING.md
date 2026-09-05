@@ -8,8 +8,8 @@ npm run build
 npm test
 ```
 
-Node 20.18.1 is the floor — `undici` 7 declares it, so the package cannot run below it whatever
-`engines` says. CI runs the suite on 20.18.1 and 24.x.
+Node 22.12.0 is the supported floor. CI runs on that floor and Node 24; use the latest patched
+22 or 24 LTS for deployment. Node 20 has reached end of life.
 
 ## Before opening a pull request
 
@@ -72,7 +72,7 @@ git tag v1.2.3 && git push origin v1.2.3
 Before pushing the tag, confirm `NPM_TOKEN` exists in the repository's Actions secrets and has
 publish rights for the package. The release workflow rebuilds, typechecks, runs tests, measurements
 and static evaluations, verifies generated docs, verifies the tag matches `package.json`, asserts the
-21-file package boundary, installs the actual tarball, smoke-tests its CLI, and only then publishes
+package allowlist, installs the actual tarball, smoke-tests its CLI, and only then publishes
 to npm with provenance and creates the GitHub Release.
 
 For the first `1.0.0` publication, the npm package does not exist yet: the token's account or

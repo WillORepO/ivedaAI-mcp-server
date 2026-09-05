@@ -6,7 +6,7 @@ import { stripDialectsFromToolList } from "./schemaDialect.js";
 import { z } from "zod";
 import { loadSwagger, tagToToolName, resolveRef, schemaDefinitions, schemaRef, type Operation } from "./swagger.js";
 import { loadConfig, TokenManager, insecureTransportWarning } from "./auth.js";
-import { executeOperation } from "./request.js";
+import { executeOperation, MULTIPART_BODY_FIELD, MULTIPART_FILE_FIELD } from "./request.js";
 import {
   describeTag,
   SERVER_INSTRUCTIONS,
@@ -24,7 +24,7 @@ import {
   mergeTriggerIntoRule,
 } from "./alertTrigger.js";
 import { lossyUpdateError } from "./partialUpdate.js";
-import { policyFromEnv, refusalReason, allowedOperations } from "./accessPolicy.js";
+import { policyFromEnv, refusalReason, allowedOperations, isReadSafe } from "./accessPolicy.js";
 import { computeRoundTripGaps, fieldsAtRisk, hasRisk, roundTripNote } from "./roundTrip.js";
 import { buildCameraBody, type CameraSpec } from "./cameraOnboarding.js";
 import { apiResponseOutput, schemaLookupOutput, alertIntegrationOutput, addCameraOutput } from "./outputSchema.js";
@@ -72,7 +72,7 @@ Required environment:
   IVEDAAI_PASSWORD                  Account password
 
 Optional:
-  IVEDAAI_READ_ONLY=true            Serve reads only; withholds every non-GET
+  IVEDAAI_READ_ONLY=true            Serve reads only, including verified query-only POSTs
   IVEDAAI_ALLOW_COLLECTION_DELETE=true
                                     Permit DELETEs that name no record
   IVEDAAI_REDACT_SECRETS=false      Stop masking credential-shaped fields
@@ -203,21 +203,21 @@ for (const group of ctx.tags) {
     console.error(`[ivedaai-mcp-server] duplicate tool name "${toolName}" for tag "${group.tag}", skipping`);
     continue;
   }
-  seenNames.add(toolName);
 
   const operations = allowedOperations(group.operations, ACCESS_POLICY);
   // A tag whose every operation is forbidden becomes no tool at all, rather than
   // a tool that can only refuse.
   if (operations.length === 0) continue;
+  seenNames.add(toolName);
 
   const operationIds = operations.map((o) => o.id) as [string, ...string[]];
-  const isReadOnly = operations.every((o) => o.method === "GET");
-  const hasDestructive = operations.some((o) => o.method === "DELETE");
+  const isReadOnly = operations.every((o) => o.method === "GET" || isReadSafe(o));
+  const hasDestructive = operations.some((o) => ["DELETE", "PUT", "PATCH"].includes(o.method));
   // `every`, for the same reason `hasDestructive` is `some`: these tools
   // dispatch to many operations behind one annotation, so a per-tool claim is
   // only true if it holds for every operation the tool will accept. One POST in
   // a tag is enough to make "repeating this changes nothing" a lie.
-  const isIdempotent = operations.every((o) => IDEMPOTENT_METHODS.has(o.method));
+  const isIdempotent = operations.every((o) => IDEMPOTENT_METHODS.has(o.method) || isReadSafe(o));
 
   /**
    * Which argument fields any operation behind this tool can actually use.
@@ -238,9 +238,12 @@ for (const group of ctx.tags) {
    */
   const acceptsPath = operations.some((o) => o.parameters.some((p) => p.in === "path"));
   const acceptsQuery = operations.some((o) => o.parameters.some((p) => p.in === "query"));
-  const acceptsBody = operations.some((o) => o.parameters.some((p) => p.in === "body"));
+  const acceptsBody = operations.some((o) =>
+    o.parameters.some((p) => p.in === "body" || (p.in === "formData" && p.type !== "file")) ||
+    MULTIPART_BODY_FIELD[o.id] !== undefined
+  );
   const acceptsFile = operations.some((o) =>
-    o.parameters.some((p) => p.in === "formData" && p.type === "file")
+    o.parameters.some((p) => p.in === "formData" && p.type === "file") || MULTIPART_FILE_FIELD[o.id] !== undefined
   );
 
   server.registerTool(
@@ -317,7 +320,7 @@ for (const group of ctx.tags) {
       // it carries no field documentation.
       outputSchema: apiResponseOutput,
     },
-    async ({ operation, path, query, body, file }) => {
+    async ({ operation, path, query, body, file }, extra) => {
       const op = operations.find((o) => o.id === operation);
       if (!op) {
         return {
@@ -338,7 +341,7 @@ for (const group of ctx.tags) {
         return { content: [{ type: "text", text: lossy }], isError: true };
       }
       try {
-        const result = await executeOperation(tokenManager, op, { path, query, body, file });
+        const result = await executeOperation(tokenManager, op, { path, query, body, file }, undefined, extra.signal);
 
         // Spring's page fields, reduced to whether there is more and what to
         // send for it. Added beside `body` rather than into it, so what a caller
@@ -486,7 +489,7 @@ if (ACCESS_POLICY.readOnly) {
       // twice delivers two requests to whatever is on the other end. "apply"
       // and "list_types" would both qualify on their own; the annotation covers
       // the tool, so the action that does not is the one that decides it.
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
       inputSchema: {
         action: z.enum(["list_types", "test", "apply"]).describe("Which action to perform."),
         type: z
@@ -497,12 +500,13 @@ if (ACCESS_POLICY.readOnly) {
         alertRuleId: z.string().optional().describe("Existing alert rule UUID to attach the trigger to. Required for 'apply'."),
         timeoutMs: z
           .number()
+          .int().min(1).max(300_000)
           .optional()
           .describe("Override the connection-test timeout in ms (default 60000). Raise this for slow VMS integrations."),
       },
       outputSchema: alertIntegrationOutput,
     },
-    async ({ action, type, config, alertRuleId, timeoutMs }) => {
+    async ({ action, type, config, alertRuleId, timeoutMs }, extra) => {
       if (action === "list_types") {
         // Under a "types" key rather than bare, for the same reason as
         // ivedaai_get_schema: structuredContent must be an object, and one
@@ -534,7 +538,8 @@ if (ACCESS_POLICY.readOnly) {
             tokenManager,
             testAlertTriggerOp,
             { body },
-            timeoutMs ?? DEFAULT_TRIGGER_TEST_TIMEOUT_MS
+            timeoutMs ?? DEFAULT_TRIGGER_TEST_TIMEOUT_MS,
+            extra.signal
           );
           const interpretation = interpretTestResult(result.status, result.body);
           const payload = { ...interpretation, httpStatus: result.status, raw: result.body };
@@ -562,7 +567,7 @@ if (ACCESS_POLICY.readOnly) {
         // Read the rule first so the update carries forward every field the read
         // exposes, rather than sending a bare {trigger} and trusting this server
         // to leave omissions alone — which its other PATCH provably does not.
-        const current = await executeOperation(tokenManager, getAlertRuleOp, { path: { alertRuleId } });
+        const current = await executeOperation(tokenManager, getAlertRuleOp, { path: { alertRuleId } }, undefined, extra.signal);
         if (current.status >= 400) {
           return {
             content: [
@@ -605,7 +610,7 @@ if (ACCESS_POLICY.readOnly) {
           };
         }
 
-        const result = await executeOperation(tokenManager, patchAlertRuleOp, { path: { alertRuleId }, body: merged.body });
+        const result = await executeOperation(tokenManager, patchAlertRuleOp, { path: { alertRuleId }, body: merged.body }, undefined, extra.signal);
         const payload = {
           ...result,
           preservation: {
@@ -662,6 +667,7 @@ if (ACCESS_POLICY.readOnly) {
           .array(
             z.object({
               name: z.string().describe("Camera name (must be unique)."),
+              cameraType: z.enum(["VideoSource", "Onvif", "External", "General", "App", "Footage"]).optional().describe("Default General; choose another type only when the deployment requires it."),
               streamUrl: z.string().optional().describe("Full RTSP URL, e.g. rtsp://user:pass@192.168.1.50:554/stream1. Preferred over ip."),
               ip: z.string().optional().describe("Camera IP, used only if streamUrl is omitted (a generic RTSP URL will be guessed)."),
               port: z.number().optional().describe("RTSP port, used with ip (default 554)."),
@@ -685,11 +691,11 @@ if (ACCESS_POLICY.readOnly) {
       },
       outputSchema: addCameraOutput,
     },
-    async ({ cameras, ainvrId, activate }) => {
+    async ({ cameras, ainvrId, activate }, extra) => {
       try {
         let resolvedAinvrId = ainvrId;
         if (resolvedAinvrId === undefined) {
-          const ainvrs = await executeOperation(tokenManager, listAinvrsOp, { query: { size: 1 } });
+          const ainvrs = await executeOperation(tokenManager, listAinvrsOp, { query: { size: 1 } }, undefined, extra.signal);
           const first = (ainvrs.body as any)?.content?.[0];
           if (!first) {
             return { content: [{ type: "text", text: "Could not find any ainvr/site to add cameras under, and none was specified." }], isError: true };
@@ -699,7 +705,7 @@ if (ACCESS_POLICY.readOnly) {
 
         let defaultEngineProfileId: number | undefined;
         if (cameras.some((c) => c.engineProfileId === undefined)) {
-          const profiles = await executeOperation(tokenManager, listEngineProfilesOp, { query: { size: 1 } });
+          const profiles = await executeOperation(tokenManager, listEngineProfilesOp, { query: { size: 1 } }, undefined, extra.signal);
           const first = (profiles.body as any)?.content?.[0];
           if (!first) {
             return { content: [{ type: "text", text: "Could not find any engine profile to default to, and some cameras didn't specify one." }], isError: true };
@@ -720,49 +726,62 @@ if (ACCESS_POLICY.readOnly) {
             continue;
           }
 
-          const createResult = await executeOperation(tokenManager, createCameraOp, {
-            query: { ainvrId: resolvedAinvrId },
-            body: built.body,
-          });
+          try {
+            const createResult = await executeOperation(tokenManager, createCameraOp, {
+              query: { ainvrId: resolvedAinvrId },
+              body: built.body,
+            }, undefined, extra.signal);
 
-          let cameraId: number | undefined;
-          let outcome: string;
-          let note: string | undefined;
+            let cameraId: number | undefined;
+            let outcome: string;
 
-          if (createResult.status < 400) {
-            cameraId = (createResult.body as any)?.cameraId;
-            outcome = "created";
-          } else {
-            const check = await executeOperation(tokenManager, listCamerasOp, { query: { name: spec.name } });
-            const found = (check.body as any)?.content?.[0];
-            if (found) {
-              cameraId = found.cameraId;
-              outcome = "created_despite_error";
-              note = `The create call returned an error (status ${createResult.status}), but a camera record was found anyway — a known server quirk. Treating it as created.`;
+            if (createResult.status < 400) {
+              cameraId = (createResult.body as any)?.cameraId;
+              if (!Number.isSafeInteger(cameraId) || (cameraId as number) <= 0) {
+                anyFailed = true;
+                results.push({ name: spec.name, outcome: "failed", status: createResult.status,
+                  note: "The create response did not contain a valid cameraId. Inspect the camera list before retrying; activation was not attempted.", warnings: built.warnings });
+                continue;
+              }
+              outcome = "created";
             } else {
+              const check = await executeOperation(tokenManager, listCamerasOp, { query: { name: spec.name } }, undefined, extra.signal);
+              const found = (check.body as any)?.content?.find((c: any) => c.name === spec.name);
+              // A duplicate-name failure can return an existing camera here.
+              // A name match cannot prove this call created it; never activate it.
               anyFailed = true;
-              results.push({ name: spec.name, outcome: "failed", status: createResult.status, error: createResult.body, warnings: built.warnings });
+              results.push({ name: spec.name, outcome: "failed", status: createResult.status, error: createResult.body,
+                ...(found ? { cameraId: found.cameraId, note: "A camera with this name exists, but creation failed. It may predate this call or be partially created. Inspect it before retrying; activation was not attempted." } : {}),
+                warnings: built.warnings });
               continue;
             }
-          }
 
-          const result: Record<string, unknown> = { name: spec.name, outcome, cameraId, warnings: built.warnings };
-          if (note) result.note = note;
+            const result: Record<string, unknown> = { name: spec.name, outcome, cameraId, warnings: built.warnings };
 
-          if (activate !== false && cameraId !== undefined) {
-            const activateResult = await executeOperation(tokenManager, activateCameraOp, {
-              path: { cameraId },
-              query: { activate: true },
-            });
-            if (activateResult.status < 400) {
-              const job = activateResult.body as any;
-              result.activation = { jobId: job?.jobId, resourceId: job?.resourceId, status: job?.status };
-            } else {
-              result.activation = { error: `Activation failed (status ${activateResult.status}): ${JSON.stringify(activateResult.body)}` };
+            if (activate !== false && cameraId !== undefined) {
+              const activateResult = await executeOperation(tokenManager, activateCameraOp, {
+                path: { cameraId },
+                query: { activate: true },
+              }, undefined, extra.signal);
+              if (activateResult.status < 400) {
+                const job = activateResult.body as any;
+                result.activation = { jobId: job?.jobId, resourceId: job?.resourceId, status: job?.status };
+              } else {
+                anyFailed = true;
+                result.activation = { error: `Activation failed (status ${activateResult.status}): ${JSON.stringify(activateResult.body)}` };
+              }
             }
-          }
 
-          results.push(result);
+            results.push(result);
+          } catch (err) {
+            // A timeout or disconnect may follow a committed write. Preserve
+            // completed entries and stop the batch instead of encouraging a replay.
+            anyFailed = true;
+            results.push({ name: spec.name, outcome: "failed",
+              error: err instanceof Error ? err.message : String(err),
+              note: "The request did not complete. Its write outcome may be unknown. Inspect this camera before retrying; remaining cameras were not attempted." });
+            break;
+          }
         }
 
         const payload = { ainvrId: resolvedAinvrId, results };
@@ -783,6 +802,19 @@ if (ACCESS_POLICY.readOnly) {
 }
 
 const transport = new StdioServerTransport();
+let closing = false;
+const shutdown = async () => {
+  if (closing) return;
+  closing = true;
+  // Abort outbound work before closing the protocol. A closed client must
+  // never leave a batch continuing to create or activate cameras.
+  await tokenManager.close();
+  await server.close();
+};
+const finish = () => { void shutdown().catch(() => { process.exitCode = 1; }); };
+process.stdin.once("end", finish);
+process.once("SIGINT", finish);
+process.once("SIGTERM", finish);
 const sendUnmodified = transport.send.bind(transport);
 transport.send = async (message: JSONRPCMessage): Promise<void> => {
   stripDialectsFromToolList(message);

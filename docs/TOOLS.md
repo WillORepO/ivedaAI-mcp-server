@@ -483,7 +483,7 @@ _No parameters._
 
 **Body:** `{ account?:string, cameraType*:enum(App|External|Footage|General|Onvif|RecordedAnalytic|VideoSource), description?:string, detectionMode?:string, doRecording*:boolean, engineConfig?:EngineConfig, engineProfileId*:integer, externalMeta?:ExternalMeta, floorPlanAngle?:integer, floorPlanId?:string, floorPlanX?:number, floorPlanY?:number, frameRate?:number, gpuId?:integer, hwDecode?:boolean, ip?:string, latitude?:number, locationType?:enum(GPS_MAP|INDOOR_MAP|NONE), longitude?:number, manufacturer?:string, model?:string, name?:string, nvrChannel?:string, nvrId?:string, password?:string, plugins?:enum(AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine|+17 more), port?:integer, protocol*:enum(Both|TCP|UDP), resolution?:string, roiContour*:VoContour[], schedule?:Schedule, streamUrl?:string }`
 
-> ⚠️ NOTE: the required list above is corrected — the published spec marks only "cameraType", and a body carrying just that is refused with a 400 naming the other four and no record created. Creating the record does not start the camera either; it stays Idle until activated. For onboarding a real camera prefer the ivedaai_add_camera tool, which supplies these and the other defaults, activates the camera, and cleans up after a partial create.
+> ⚠️ NOTE: the required list above is corrected — the published spec marks only "cameraType", and a body carrying just that is refused with a 400 naming the other four and no record created. Creating the record does not start the camera either; it stays Idle until activated. For onboarding a real camera prefer the ivedaai_add_camera tool, which supplies these and the other defaults, activates the camera, and reports uncertain partial creation for inspection before retrying.
 
 #### `DELETE /api/cameras/{cameraId}` — Delete camera by id
 
@@ -741,8 +741,11 @@ _No parameters._
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
 | `classifierName` | path | **yes** | string | Specify classifier to be executed.. |
+| `threshold` | formData | no | number | threshold of confidence. |
 
 **File upload:** pass `file: { path, filename?, contentType? }` (required).
+
+Pass form fields via the `body` argument.
 
 #### `POST /api/detection/clip/image` — Use clip encode image
 
@@ -756,9 +759,19 @@ _No parameters._
 
 **File upload:** pass `file: { path, filename?, contentType? }` (required).
 
+**Body:** JSON side-payload sent in multipart text field `request` (an array of color-detection regions).
+
 #### `POST /api/detection/colors.image` — Detect and draw colors
 
+| Parameter | In | Required | Type | Notes |
+|---|---|---|---|---|
+| `label` | formData | no | boolean | label. |
+
 **File upload:** pass `file: { path, filename?, contentType? }` (required).
+
+Pass form fields via the `body` argument.
+
+**Body:** JSON side-payload sent in multipart text field `request` (an array of color-detection regions).
 
 #### `POST /api/detection/objects` — Detect objects
 
@@ -981,8 +994,16 @@ _No parameters._
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
 | `mappingId` | path | **yes** | string | mappingId. |
+| `applicationId` | formData | no | string | applicationId. |
+| `height` | formData | no | integer | height. |
+| `latitude` | formData | no | number | latitude. |
+| `longitude` | formData | no | number | longitude. |
+| `timestamp` | formData | no | integer | timestamp. |
+| `width` | formData | no | integer | width. |
 
 **File upload:** pass `file: { path, filename?, contentType? }` (required).
+
+Pass form fields via the `body` argument.
 
 #### `GET /api/externalCameras/{mappingId}/meta` — get camera meta
 
@@ -998,7 +1019,16 @@ _No parameters._
 
 #### `POST /api/face` — Face detection
 
+| Parameter | In | Required | Type | Notes |
+|---|---|---|---|---|
+| `agQualityLevel` | formData | no | string | — one of: high, low, medium |
+| `qualityLevel` | formData | no | string | — one of: high, low, medium |
+| `sceneId` | formData | no | integer | |
+| `url` | formData | no | string | image url. |
+
 **File upload:** pass `file: { path, filename?, contentType? }` (optional).
+
+Pass form fields via the `body` argument.
 
 #### `DELETE /api/face/{faceKeyId}` — Delete faceKey
 
@@ -1204,6 +1234,13 @@ _No parameters._
 | Parameter | In | Required | Type | Notes |
 |---|---|---|---|---|
 | `targetId` | path | **yes** | string | faceTargetId. |
+| `descriptor` | formData | no | string | face feature detected by detection api. |
+| `faceKeyId` | formData | no | integer | Use existing faceKeyId from FaceKey. |
+| `url` | formData | no | string | Use external image url. |
+
+Pass form fields via the `body` argument.
+
+**File upload:** required `file: { path, filename?, contentType? }`, sent as `file`. The API document omits this part.
 
 #### `GET /api/face/targets/export` — Export Face target lists
 
@@ -1403,7 +1440,13 @@ _No parameters._
 
 #### `POST /api/image/rotate` — Image Rotation
 
-_No parameters._
+| Parameter | In | Required | Type | Notes |
+|---|---|---|---|---|
+| `usrFileName` | formData | no | string | usrFileName. |
+
+Pass form fields via the `body` argument.
+
+**File upload:** required `file: { path, filename?, contentType? }`, sent as `file`. The API document omits this part.
 
 ## ivedaai_indoor_map
 
@@ -1578,7 +1621,24 @@ _No parameters._
 
 #### `POST /api/jobs/upload` — Create upload job
 
+| Parameter | In | Required | Type | Notes |
+|---|---|---|---|---|
+| `cameraId` | formData | **yes** | integer | |
+| `description` | formData | no | string | |
+| `doTranscode` | formData | no | boolean | transcode option. |
+| `engineProfileId` | formData | **yes** | integer | |
+| `faceFeatures` | formData | no | string[] | |
+| `gdprThreshold` | formData | no | number | |
+| `latitude` | formData | no | number | latitude. |
+| `longitude` | formData | no | number | longitude. |
+| `plugins` | formData | no | string[] | |
+| `startTime` | formData | **yes** | string | yyyy-MM-dd[T][hh:mm:ss][Z]. |
+| `url` | formData | no | string | |
+| `usrFileName` | formData | **yes** | string | |
+
 **File upload:** pass `file: { path, filename?, contentType? }` (optional).
+
+Pass form fields via the `body` argument.
 
 ## ivedaai_license
 
@@ -2065,7 +2125,15 @@ _No parameters._
 
 #### `POST /api/plugins` — Import Plugin
 
+| Parameter | In | Required | Type | Notes |
+|---|---|---|---|---|
+| `filePath` | formData | no | string | Path to an existing plugin file inside the container; required if no file is uploaded. |
+| `password` | formData | **yes** | string | password. |
+| `username` | formData | **yes** | string | username. |
+
 **File upload:** pass `file: { path, filename?, contentType? }` (optional).
+
+Pass form fields via the `body` argument.
 
 #### `DELETE /api/plugins/{pluginId}` — Delete Plugin by Id
 
@@ -2177,7 +2245,70 @@ _No parameters._
 
 #### `POST /api/scenes` — Create scene
 
+| Parameter | In | Required | Type | Notes |
+|---|---|---|---|---|
+| `cameraId` | formData | **yes** | integer | |
+| `datetime` | formData | no | string | [yyyy-MM-dd'T'HH:mm:ss.SSSZ] default to current time. |
+| `forceSave` | formData | no | boolean | allow to create the scene without any object, default is false. |
+| `frameIndex` | formData | no | integer | |
+| `hashtags` | formData | no | string[] | |
+| `latitude` | formData | no | number | |
+| `longitude` | formData | no | number | |
+| `profileId` | formData | no | integer | specific profileId for engines. |
+| `requiredEngines` | formData | no | string | specify the required engine. |
+| `sceneObjects[0].confidence` | formData | no | number | |
+| `sceneObjects[0].h` | formData | **yes** | integer | |
+| `sceneObjects[0].metadata.colors` | formData | no | string[] | object color. |
+| `sceneObjects[0].metadata.face.age` | formData | no | integer | |
+| `sceneObjects[0].metadata.face.ageGroup` | formData | no | string | — one of: -, 1-19, 20-29, 30-39, 40-49, 50-59, 60-69, 70-100 |
+| `sceneObjects[0].metadata.face.categoryName` | formData | no | string | |
+| `sceneObjects[0].metadata.face.categoryUuid` | formData | no | string | |
+| `sceneObjects[0].metadata.face.confidence` | formData | no | number | |
+| `sceneObjects[0].metadata.face.emotion` | formData | no | string | — one of: Angry, Happy, Neutral, Sad, Surprised, Unknown |
+| `sceneObjects[0].metadata.face.features` | formData | **yes** | number[] | |
+| `sceneObjects[0].metadata.face.gender` | formData | no | string | — one of: Female, Male, Unknown |
+| `sceneObjects[0].metadata.face.matchConfidence` | formData | no | number | |
+| `sceneObjects[0].metadata.face.qualified` | formData | no | boolean | |
+| `sceneObjects[0].metadata.face.rect.height` | formData | no | integer | |
+| `sceneObjects[0].metadata.face.rect.width` | formData | no | integer | |
+| `sceneObjects[0].metadata.face.rect.x` | formData | no | integer | |
+| `sceneObjects[0].metadata.face.rect.y` | formData | no | integer | |
+| `sceneObjects[0].metadata.face.targetName` | formData | no | string | |
+| `sceneObjects[0].metadata.face.targetUuid` | formData | no | string | |
+| `sceneObjects[0].metadata.licensePlate.categoryId` | formData | no | integer | |
+| `sceneObjects[0].metadata.licensePlate.categoryName` | formData | no | string | |
+| `sceneObjects[0].metadata.licensePlate.categoryUuid` | formData | no | string | |
+| `sceneObjects[0].metadata.licensePlate.confidence` | formData | no | number | |
+| `sceneObjects[0].metadata.licensePlate.country` | formData | no | string | |
+| `sceneObjects[0].metadata.licensePlate.disabled` | formData | no | boolean | |
+| `sceneObjects[0].metadata.licensePlate.number` | formData | no | string | |
+| `sceneObjects[0].metadata.licensePlate.rect.height` | formData | no | integer | |
+| `sceneObjects[0].metadata.licensePlate.rect.width` | formData | no | integer | |
+| `sceneObjects[0].metadata.licensePlate.rect.x` | formData | no | integer | |
+| `sceneObjects[0].metadata.licensePlate.rect.y` | formData | no | integer | |
+| `sceneObjects[0].metadata.licensePlate.state` | formData | no | string | |
+| `sceneObjects[0].metadata.licensePlate.vehicleOwner` | formData | no | string | |
+| `sceneObjects[0].metadata.licensePlate.vehicleType` | formData | no | string | |
+| `sceneObjects[0].metadata.makeModel.make` | formData | no | string | |
+| `sceneObjects[0].metadata.makeModel.model` | formData | no | string | |
+| `sceneObjects[0].metadata.makeModel.possibility` | formData | no | number | |
+| `sceneObjects[0].metadata.mask.confidence` | formData | no | number | |
+| `sceneObjects[0].metadata.mask.hasMask` | formData | no | boolean | |
+| `sceneObjects[0].metadata.person.hasHelmet` | formData | no | boolean | |
+| `sceneObjects[0].metadata.person.hasVest` | formData | no | boolean | |
+| `sceneObjects[0].metadata.person.helmetConfidence` | formData | no | number | |
+| `sceneObjects[0].metadata.person.vestConfidence` | formData | no | number | |
+| `sceneObjects[0].metadata.speed` | formData | no | string | — one of: AboveAverage, Average, BelowAverage |
+| `sceneObjects[0].objectType` | formData | **yes** | string | object type. |
+| `sceneObjects[0].w` | formData | **yes** | integer | |
+| `sceneObjects[0].x` | formData | **yes** | integer | |
+| `sceneObjects[0].y` | formData | **yes** | integer | |
+
 **File upload:** pass `file: { path, filename?, contentType? }` (required).
+
+Pass form fields via the `body` argument.
+
+**Body:** JSON side-payload sent in multipart text field `scene`.
 
 #### `GET /api/scenes/{sceneId}` — Get scene details
 
@@ -2271,7 +2402,27 @@ _No parameters._
 
 #### `POST /api/scene-objects/search/image` — Search similar scene object by image
 
+| Parameter | In | Required | Type | Notes |
+|---|---|---|---|---|
+| `allCameras` | formData | no | boolean | select all camera, default false. |
+| `allFootages` | formData | no | boolean | select all footage, default false. |
+| `cameraIds` | formData | no | integer | comma sperated integer. |
+| `end` | formData | **yes** | string | yyyy-MM-dd HH:mm:ss. |
+| `footageIds` | formData | no | integer | comma seperated integer. |
+| `offset` | formData | no | integer | |
+| `pageNumber` | formData | no | integer | |
+| `pageSize` | formData | no | integer | |
+| `paged` | formData | no | boolean | |
+| `similarity` | formData | no | number | similarity of object. |
+| `sort.sorted` | formData | no | boolean | |
+| `sort.unsorted` | formData | no | boolean | |
+| `start` | formData | **yes** | string | yyyy-MM-dd HH:mm:ss. |
+| `trackType` | formData | **yes** | string | the object type of the scene object. — one of: Person, Vehicle |
+| `unpaged` | formData | no | boolean | |
+
 **File upload:** pass `file: { path, filename?, contentType? }` (required).
+
+Pass form fields via the `body` argument.
 
 ## ivedaai_sound
 
@@ -2503,6 +2654,6 @@ MAIL:
 
 ## ivedaai_add_camera
 
-Adds one or more cameras (e.g. from a list of IPs or RTSP URLs) and starts their connection. Built from live testing findings: the raw `CameraRequest` schema's `required` list is misleading (floor-plan fields it lists as required are actually waived by `locationType: "NONE"`), a schema-valid minimal body still throws a bare server-side error unless several other optional-looking fields are also filled (this tool fills them automatically), creating the record is not enough for the camera to connect or appear fully provisioned — a separate `POST /api/cameras/{id}/jobs?activate=true` step is required and performed automatically — and a creation error can still partially create the camera server-side (detected by an exact-name lookup and reported as `created_despite_error` rather than a false `failed`).
+Adds one or more cameras (e.g. from a list of IPs or RTSP URLs) and starts their connection. Built from live testing findings: the raw `CameraRequest` schema's `required` list is misleading (floor-plan fields it lists as required are actually waived by `locationType: "NONE"`), a schema-valid minimal body still throws a bare server-side error unless several other optional-looking fields are also filled (this tool fills them automatically), creating the record is not enough for the camera to connect or appear fully provisioned — a separate `POST /api/cameras/{id}/jobs?activate=true` step is required and performed automatically — and a creation error can still partially create the camera server-side (detected by an exact-name lookup and reported as a failed creation with the matching id for inspection). The match can predate this call, so it is never activated automatically after a creation error.
 
 Only `name` plus `streamUrl` or `ip` are required per camera; `engineProfileId` and `roiContour` default automatically. Activation succeeding is not proof the stream actually connected — check back via `ivedaai_job` (`GET /api/jobs/{jobId}`) or `ivedaai_camera` (`GET /api/cameras/{cameraId}`, look for a populated `status` field).

@@ -129,7 +129,7 @@ export const CAPABILITY_NOTES: Record<string, string> = {
     "carrying just that is refused with a 400 naming the other four and no record created. Creating the " +
     "record does not start the camera either; it stays Idle until activated. For onboarding a real camera " +
     "prefer the ivedaai_add_camera tool, which supplies these and the other defaults, activates the camera, " +
-    "and cleans up after a partial create.",
+    "and reports uncertain partial creation for inspection before retrying.",
 
   "GET /api/alerts":
     "NOTE: on an active deployment this collection is very large — hundreds of thousands of records over a "
