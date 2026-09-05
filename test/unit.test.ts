@@ -2074,7 +2074,12 @@ describe("capability notes", () => {
     // never finishes. Two independent live runs both had to discover the
     // filter/size=1/pagination.total technique for themselves before they
     // could answer at all.
-    expect(Object.keys(CAPABILITY_NOTES).length).toBeLessThan(9);
+    // Raised from 9 to 10 after live uploads demonstrated that the legacy
+    // endpoint silently misdates spaced timestamps. The note steers callers
+    // to the current endpoint and gives the verified legacy format.
+    expect(capabilityNote("POST /api/jobs")).toContain("yyyyMMddHHmmss");
+    expect(capabilityNote("POST /api/jobs")).toContain("POST /api/jobs/upload");
+    expect(Object.keys(CAPABILITY_NOTES).length).toBeLessThan(10);
   });
 });
 

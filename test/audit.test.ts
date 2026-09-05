@@ -210,3 +210,33 @@ it('rejects ambiguous read-only settings instead of silently enabling writes',()
   expect(()=>policyFromEnv({IVEDAAI_READ_ONLY:'TRUE'})).toThrow('IVEDAAI_READ_ONLY');
   expect(()=>policyFromEnv({IVEDAAI_ALLOW_COLLECTION_DELETE:'1'})).toThrow('IVEDAAI_ALLOW_COLLECTION_DELETE');
 });
+
+it.each(['2026-09-04 13:00:00', '20260931130000', '20260904250000'])(
+  'rejects the unsafe legacy upload timestamp %s before network traffic', async startTime => {
+    let requests = 0;
+    await withMcp((req, res) => {
+      requests++; if (token(req, res)) return;
+      res.setHeader('content-type', 'application/json'); res.end('{}');
+    }, async c => {
+      const r = await c.callTool({ name: 'ivedaai_job', arguments: {
+        operation: 'POST /api/jobs', query: { type: 'UploadJob', cameraId: 1, startTime, endTime: '20260904130012' },
+      }});
+      expect(r.isError).toBe(true); expect(requests).toBe(0);
+      expect(JSON.stringify(r)).toContain('yyyyMMddHHmmss');
+    });
+  }
+);
+
+it('preserves documented compact timestamps on legacy upload requests', async () => {
+  let observed: string | null = null;
+  await withMcp((req, res) => {
+    if (token(req, res)) return;
+    observed = new URL(req.url!, 'http://localhost').searchParams.get('startTime');
+    res.setHeader('content-type', 'application/json'); res.end('{}');
+  }, async c => {
+    const r = await c.callTool({ name: 'ivedaai_job', arguments: {
+      operation: 'POST /api/jobs', query: { type: 'UploadJob', cameraId: 1, startTime: '20260904130000', endTime: '20260904130012' },
+    }});
+    expect(r.isError).toBe(false); expect(observed).toBe('20260904130000');
+  });
+});

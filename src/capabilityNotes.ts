@@ -158,6 +158,11 @@ export const CAPABILITY_NOTES: Record<string, string> = {
     "404 Not Found rather than trusting the 202 — it is 202 Accepted, not 204, so it promises nothing about " +
     "having happened.",
 
+  "POST /api/jobs":
+    "NOTE: this legacy endpoint is deprecated. For uploads prefer POST /api/jobs/upload, which returns structured jobId/footageId " +
+    "and accepts an ISO timestamp with offset. Here startTime/endTime require yyyyMMddHHmmss in deployment-local time; " +
+    "spaced dates were observed to silently store an unrelated date despite a completed job. Invalid timestamp formats are rejected locally.",
+
   "PUT /api/jobs":
     "NOTE: this takes no job id and no camera filter — see the operation list for POST /api/jobs/{cameraId}, " +
     "which cancels one camera's job, before using this one.",

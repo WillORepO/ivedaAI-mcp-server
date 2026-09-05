@@ -1561,6 +1561,8 @@ _No parameters._
 
 **File upload:** pass `file: { path, filename?, contentType? }` (optional).
 
+> ⚠️ NOTE: this legacy endpoint is deprecated. For uploads prefer POST /api/jobs/upload, which returns structured jobId/footageId and accepts an ISO timestamp with offset. Here startTime/endTime require yyyyMMddHHmmss in deployment-local time; spaced dates were observed to silently store an unrelated date despite a completed job. Invalid timestamp formats are rejected locally.
+
 #### `PUT /api/jobs` — Operate all jobs
 
 | Parameter | In | Required | Type | Notes |

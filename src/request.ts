@@ -102,6 +102,17 @@ function encodeQueryValue(param: ParamDef, value: unknown, search: URLSearchPara
   search.append(param.name, String(value));
 }
 
+function isCompactTimestamp(value: unknown): boolean {
+  if (typeof value !== "string" || !/^\d{14}$/.test(value)) return false;
+  const year = Number(value.slice(0, 4)), month = Number(value.slice(4, 6)), day = Number(value.slice(6, 8));
+  const hour = Number(value.slice(8, 10)), minute = Number(value.slice(10, 12)), second = Number(value.slice(12, 14));
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(hour, minute, second, 0);
+  return year > 0 && date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day && date.getUTCHours() === hour && date.getUTCMinutes() === minute && date.getUTCSeconds() === second;
+}
+
 export function validateArgs(operation: Operation, args: OperationArgs): string[] {
   const problems: string[] = [];
 
@@ -116,6 +127,19 @@ export function validateArgs(operation: Operation, args: OperationArgs): string[
   for (const p of queryParams) {
     if (p.required && isMissing(args.query?.[p.name])) {
       problems.push(`Missing required query parameter "${p.name}".`);
+    }
+  }
+
+  // This deprecated endpoint parses the wrong format leniently, returning
+  // success with footage filed months away from the requested date. Apply
+  // the guard only when the operation declares the verified compact format.
+  if (operation.id === "POST /api/jobs") {
+    for (const name of ["startTime", "endTime"]) {
+      const value = args.query?.[name];
+      if (value !== undefined && queryParams.some(p => p.name === name && p.description?.includes("yyyyMMddHHmmss")) &&
+          !isCompactTimestamp(value)) {
+        problems.push(`Query parameter "${name}" must be a valid yyyyMMddHHmmss timestamp (14 digits, deployment-local time). The legacy endpoint silently misdates other formats. Prefer POST /api/jobs/upload for uploads with an explicit ISO timestamp and offset.`);
+      }
     }
   }
 

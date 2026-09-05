@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Production-readiness audit fixes
 
+- Validate the deprecated upload endpoint's documented `yyyyMMddHHmmss` timestamps before network
+  traffic. Live testing confirmed that spaced dates can silently produce footage with the wrong date;
+  the current upload endpoint accepts ISO timestamps with an explicit offset correctly.
 - Reject empty and dot-segment path identifiers and empty required query targets before authentication,
   preventing record DELETEs from becoming collection requests after URL normalization.
 - Withhold incomplete or malformed JSON that cannot be safely redacted; redact complete SSE events,
